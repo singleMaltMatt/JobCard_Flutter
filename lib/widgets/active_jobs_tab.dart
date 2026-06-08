@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../config/theme.dart';
-import '../config/constants.dart';
 import '../providers/job_provider.dart';
 import 'workflow_dropdown.dart';
 import 'complete_job_dialog.dart';
@@ -78,7 +77,7 @@ class _ActiveJobCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: AppTheme.primaryBlue.withOpacity(0.3),
+          color: AppTheme.primaryBlue.withValues(alpha: 0.3),
           width: 1.5,
         ),
       ),
@@ -93,7 +92,7 @@ class _ActiveJobCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
+                    color: Colors.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(

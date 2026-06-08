@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:jobcard_tracker/widgets/complete_job_dialog.dart';
 import 'package:provider/provider.dart';
 import '../providers/job_provider.dart';
 import 'job_card.dart';
@@ -52,7 +53,16 @@ class JobsTab extends StatelessWidget {
             itemCount: jobProvider.jobs.length,
             itemBuilder: (context, index) {
               final job = jobProvider.jobs[index];
-              return JobCard(job: job);
+              return JobCard(
+                  job: job,
+                  onTap: () {
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (context) => CompleteJobDialog(job: job),
+                    );
+                  });
             },
           ),
         );

@@ -115,7 +115,40 @@ class JobProvider extends ChangeNotifier {
       return false;
     }
   }
+  /// Reload clients only
+  Future<void> loadClients() async {
+    try {
+      _clients = await _clientService.getClients();
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    }
+  }
 
+  /// Create a new client, returns the created Client or null on failure
+  Future<Client?> createClient({
+    required String name,
+    required String email,
+    required String phone,
+    required String address,
+  }) async {
+    try {
+      final client = await _clientService.createClient(
+        name: name,
+        email: email,
+        phone: phone,
+        address: address,
+      );
+      _clients = [..._clients, client];
+      notifyListeners();
+      return client;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
   /// Clear error
   void clearError() {
     _error = null;

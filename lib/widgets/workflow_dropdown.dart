@@ -88,8 +88,8 @@ class WorkflowDropdown extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              value: null,
-              hint: Text('Select next step...'),
+              initialValue: null,
+              hint: const Text('Select next step...'),
               items: nextSteps.map((step) {
                 return DropdownMenuItem(
                   value: step,

@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import '../config/api_config.dart';
 import '../models/user.dart';
 import 'pocketbase_client.dart';

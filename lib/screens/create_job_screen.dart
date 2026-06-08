@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import '../config/theme.dart';
 import '../providers/job_provider.dart';
-import '../providers/auth_provider.dart';
 
 class CreateJobScreen extends StatefulWidget {
   const CreateJobScreen({super.key});
@@ -17,12 +15,22 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
   String? _selectedClientId;
   DateTime _selectedDate = DateTime.now();
   bool _isCreatingClient = false;
+  bool _isSubmitting = false;
 
   // New client fields
   final _clientNameController = TextEditingController();
   final _clientEmailController = TextEditingController();
   final _clientPhoneController = TextEditingController();
   final _clientAddressController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Refresh clients every time this screen opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<JobProvider>().loadClients();
+    });
+  }
 
   @override
   void dispose() {
@@ -48,25 +56,41 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final jobProvider = context.read<JobProvider>();
-    final authProvider = context.read<AuthProvider>();
+    setState(() => _isSubmitting = true);
 
+    final jobProvider = context.read<JobProvider>();
     String clientId = _selectedClientId ?? '';
 
-    // If creating a new client
-    if (_isCreatingClient && clientId.isEmpty) {
-      // Here you would call clientService.createClient(...)
-      // For now, we show a message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Client creation not yet implemented via this form')),
+    // Create new client first if needed
+    if (_isCreatingClient) {
+      final newClient = await jobProvider.createClient(
+        name: _clientNameController.text.trim(),
+        email: _clientEmailController.text.trim(),
+        phone: _clientPhoneController.text.trim(),
+        address: _clientAddressController.text.trim(),
       );
-      return;
+
+      if (newClient == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to create client: ${jobProvider.error}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        setState(() => _isSubmitting = false);
+        return;
+      }
+
+      clientId = newClient.id;
     }
 
     if (clientId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select or create a client')),
       );
+      setState(() => _isSubmitting = false);
       return;
     }
 
@@ -76,6 +100,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
     );
 
     if (mounted) {
+      setState(() => _isSubmitting = false);
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -115,7 +140,10 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                         child: ChoiceChip(
                           label: const Text('Select Client'),
                           selected: !_isCreatingClient,
-                          onSelected: (v) => setState(() => _isCreatingClient = false),
+                          onSelected: (v) => setState(() {
+                            _isCreatingClient = false;
+                            _selectedClientId = null;
+                          }),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -123,7 +151,10 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                         child: ChoiceChip(
                           label: const Text('New Client'),
                           selected: _isCreatingClient,
-                          onSelected: (v) => setState(() => _isCreatingClient = true),
+                          onSelected: (v) => setState(() {
+                            _isCreatingClient = true;
+                            _selectedClientId = null;
+                          }),
                         ),
                       ),
                     ],
@@ -155,21 +186,24 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                       maxLines: 2,
                     ),
                   ] else ...[
-                    DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(
-                        labelText: 'Select Client *',
-                        prefixIcon: Icon(Icons.business),
+                    if (jobProvider.isLoading)
+                      const Center(child: CircularProgressIndicator())
+                    else
+                      DropdownButtonFormField<String>(
+                        decoration: const InputDecoration(
+                          labelText: 'Select Client *',
+                          prefixIcon: Icon(Icons.business),
+                        ),
+                        value: _selectedClientId,
+                        items: jobProvider.clients.map((client) {
+                          return DropdownMenuItem(
+                            value: client.id,
+                            child: Text(client.name),
+                          );
+                        }).toList(),
+                        onChanged: (v) => setState(() => _selectedClientId = v),
+                        validator: (v) => (v == null || v.isEmpty) ? 'Select a client' : null,
                       ),
-                      value: _selectedClientId,
-                      items: jobProvider.clients.map((client) {
-                        return DropdownMenuItem(
-                          value: client.id,
-                          child: Text('${client.name} - ${client.address}'),
-                        );
-                      }).toList(),
-                      onChanged: (v) => setState(() => _selectedClientId = v),
-                      validator: (v) => (v == null || v.isEmpty) ? 'Select a client' : null,
-                    ),
                   ],
 
                   const SizedBox(height: 24),
@@ -191,8 +225,14 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: _submit,
-                      child: const Text('Create Job'),
+                      onPressed: _isSubmitting ? null : _submit,
+                      child: _isSubmitting
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Text('Create Job'),
                     ),
                   ),
                 ],

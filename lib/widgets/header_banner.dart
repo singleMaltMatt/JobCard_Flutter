@@ -41,7 +41,7 @@ class HeaderBanner extends StatelessWidget implements PreferredSizeWidget {
                                   ? auth.user!.username[0]
                                   : 'U')
                               .toUpperCase(),
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: AppTheme.primaryBlue,

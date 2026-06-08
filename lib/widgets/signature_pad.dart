@@ -10,7 +10,7 @@ class SignaturePad extends StatefulWidget {
 }
 
 class _SignaturePadState extends State<SignaturePad> {
-  List<List<Offset>> _points = [];
+  final List<List<Offset>> _points = [];
   List<Offset> _currentLine = [];
 
   @override
