@@ -63,6 +63,17 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Try restoring a saved session from storage (call on app start)
+  Future<bool> tryRestoreAuth() async {
+    final user = await _authService.tryRestoreAuth();
+    if (user != null) {
+      _user = user;
+      notifyListeners();
+      return true;
+    }
+    return false;
+  }
+
   /// Clear error
   void clearError() {
     _error = null;

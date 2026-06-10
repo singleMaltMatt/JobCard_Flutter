@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../config/theme.dart';
 import '../providers/job_provider.dart';
+import '../services/timer_notification_service.dart';
 import 'workflow_dropdown.dart';
 import 'complete_job_dialog.dart';
 
@@ -17,57 +19,101 @@ class ActiveJobsTab extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (jobProvider.activeJobs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.work_off_outlined,
-                  size: 64,
-                  color: Colors.grey[400],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'No active jobs',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'When a job is in progress, it will appear here',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[500],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
         return RefreshIndicator(
           onRefresh: () => jobProvider.loadAll(),
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: jobProvider.activeJobs.length,
-            itemBuilder: (context, index) {
-              final job = jobProvider.activeJobs[index];
-              return _ActiveJobCard(job: job);
-            },
-          ),
+          child: jobProvider.activeJobs.isEmpty
+              ? CustomScrollView(
+                  slivers: [
+                    SliverFillRemaining(
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.work_off_outlined, size: 64, color: Colors.grey[400]),
+                            const SizedBox(height: 16),
+                            Text('No active jobs',
+                                style: TextStyle(fontSize: 18, color: Colors.grey[600])),
+                            const SizedBox(height: 8),
+                            Text('When a job is in progress, it will appear here',
+                                style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: jobProvider.activeJobs.length,
+                  itemBuilder: (context, index) {
+                    final job = jobProvider.activeJobs[index];
+                    return _ActiveJobCard(job: job);
+                  },
+                ),
         );
       },
     );
   }
 }
 
-class _ActiveJobCard extends StatelessWidget {
+class _ActiveJobCard extends StatefulWidget {
   final dynamic job;
 
   const _ActiveJobCard({required this.job});
+
+  @override
+  State<_ActiveJobCard> createState() => _ActiveJobCardState();
+}
+
+class _ActiveJobCardState extends State<_ActiveJobCard> {
+  Timer? _timer;
+  Duration _elapsed = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimerIfOnSite();
+  }
+
+  @override
+  void didUpdateWidget(_ActiveJobCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.job.status != widget.job.status) {
+      _stopTimer();
+      _startTimerIfOnSite();
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopTimer();
+    super.dispose();
+  }
+
+  void _startTimerIfOnSite() {
+    if (widget.job.status == 'on_site' && widget.job.onSiteStartedAt != null) {
+      _elapsed = DateTime.now().difference(widget.job.onSiteStartedAt!);
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        setState(() {
+          _elapsed = DateTime.now().difference(widget.job.onSiteStartedAt!);
+        });
+      });
+      TimerNotificationService.startTimer(widget.job.onSiteStartedAt!);
+    }
+  }
+
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
+    TimerNotificationService.stopTimer();
+  }
+
+  String _formatDuration(Duration d) {
+    final h = d.inHours.toString().padLeft(2, '0');
+    final m = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +153,7 @@ class _ActiveJobCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        job.clientName ?? 'Client',
+                        widget.job.clientName ?? 'Client',
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -115,7 +161,7 @@ class _ActiveJobCard extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        job.clientAddress ?? '',
+                        widget.job.clientAddress ?? '',
                         style: const TextStyle(
                           fontSize: 13,
                           color: AppTheme.primaryGrey,
@@ -134,9 +180,9 @@ class _ActiveJobCard extends StatelessWidget {
                 const Icon(Icons.calendar_today, size: 14, color: AppTheme.primaryGrey),
                 const SizedBox(width: 6),
                 Text(
-                  job.calendarDate != null
-                      ? DateFormat('MMM d, yyyy').format(DateTime.parse(job.calendarDate!))
-                      : DateFormat('MMM d, yyyy').format(job.createdAt),
+                  widget.job.calendarDate != null
+                      ? DateFormat('MMM d, yyyy').format(DateTime.parse(widget.job.calendarDate!))
+                      : DateFormat('MMM d, yyyy').format(widget.job.createdAt),
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppTheme.darkGrey,
@@ -144,24 +190,51 @@ class _ActiveJobCard extends StatelessWidget {
                 ),
               ],
             ),
+
+            // On-site timer
+            if (widget.job.status == 'on_site') ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.timer, size: 16, color: Colors.purple),
+                    const SizedBox(width: 6),
+                    Text(
+                      'On site: ${_formatDuration(_elapsed)}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.purple,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             const SizedBox(height: 16),
 
             // Workflow dropdown
             WorkflowDropdown(
-              currentStatus: job.status,
+              currentStatus: widget.job.status,
               onChanged: (newStatus) {
                 context.read<JobProvider>().updateJobStatus(
-                      job.id,
+                      widget.job.id,
                       newStatus,
                     );
 
-                // If moving to completed, show the dialog
                 if (newStatus == 'completed') {
                   showModalBottomSheet(
                     context: context,
                     isScrollControlled: true,
                     backgroundColor: Colors.transparent,
-                    builder: (ctx) => CompleteJobDialog(job: job),
+                    builder: (ctx) => CompleteJobDialog(job: widget.job),
                   );
                 }
               },

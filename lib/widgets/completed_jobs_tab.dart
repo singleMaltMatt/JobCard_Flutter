@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
 import '../providers/job_provider.dart';
 import 'job_card.dart';
 
@@ -68,6 +69,45 @@ class CompletedJobsTab extends StatelessWidget {
   }
 }
 
+String _formatDuration(Duration d) {
+  final h = d.inHours;
+  final m = d.inMinutes % 60;
+  if (h > 0) return '${h}h ${m}m';
+  return '${m}m';
+}
+
+class _TimeRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool highlight;
+
+  const _TimeRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: highlight ? Colors.purple : Colors.grey),
+        const SizedBox(width: 8),
+        Text('$label: ',
+            style: const TextStyle(fontSize: 13, color: Colors.grey)),
+        Text(value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: highlight ? FontWeight.w600 : FontWeight.normal,
+              color: highlight ? Colors.purple : Colors.black87,
+            )),
+      ],
+    );
+  }
+}
+
 class _CompletedJobDetail extends StatelessWidget {
   final job;
   const _CompletedJobDetail({required this.job});
@@ -107,6 +147,36 @@ class _CompletedJobDetail extends StatelessWidget {
                 Text(job.clientAddress,
                     style: const TextStyle(fontSize: 14, color: Colors.grey)),
                 const Divider(height: 32),
+                if (job.onSiteStartedAt != null || job.onSiteEndedAt != null) ...[
+                  const Text('Site Times',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  _TimeRow(
+                    icon: Icons.login,
+                    label: 'Arrived',
+                    value: job.onSiteStartedAt != null
+                        ? DateFormat('HH:mm').format(job.onSiteStartedAt!.toLocal())
+                        : '—',
+                  ),
+                  const SizedBox(height: 8),
+                  _TimeRow(
+                    icon: Icons.logout,
+                    label: 'Departed',
+                    value: job.onSiteEndedAt != null
+                        ? DateFormat('HH:mm').format(job.onSiteEndedAt!.toLocal())
+                        : '—',
+                  ),
+                  const SizedBox(height: 8),
+                  _TimeRow(
+                    icon: Icons.timer,
+                    label: 'Time Spent',
+                    value: (job.onSiteStartedAt != null && job.onSiteEndedAt != null)
+                        ? _formatDuration(job.onSiteEndedAt!.difference(job.onSiteStartedAt!))
+                        : '—',
+                    highlight: true,
+                  ),
+                  const Divider(height: 32),
+                ],
                 const Text('Work Description',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),

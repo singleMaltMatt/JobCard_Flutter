@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
+
+const _kTokenKey = 'pb_token';
+const _kUserIdKey = 'pb_user_id';
 
 class PocketBaseClient {
   String? _token;
@@ -23,6 +27,33 @@ class PocketBaseClient {
   void clearAuth() {
     _token = null;
     _userId = null;
+  }
+
+  Future<void> saveAuth() async {
+    if (_token == null || _userId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kTokenKey, _token!);
+    await prefs.setString(_kUserIdKey, _userId!);
+  }
+
+  Future<bool> restoreAuth() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(_kTokenKey);
+    final userId = prefs.getString(_kUserIdKey);
+    if (token != null && userId != null) {
+      _token = token;
+      _userId = userId;
+      return true;
+    }
+    return false;
+  }
+
+  void clearSavedAuth() {
+    clearAuth();
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.remove(_kTokenKey);
+      prefs.remove(_kUserIdKey);
+    });
   }
 
   String get baseUrl => ApiConfig.baseUrl;

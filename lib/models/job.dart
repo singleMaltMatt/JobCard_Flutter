@@ -3,6 +3,7 @@ class Job {
   final String clientId;
   final String clientName;
   final String clientAddress;
+  final String clientEmail;
   final String userId;
   final String status;
   final String? description;
@@ -11,12 +12,15 @@ class Job {
   final DateTime createdAt;
   final DateTime updatedAt;
   final String? calendarDate;
+  final DateTime? onSiteStartedAt;
+  final DateTime? onSiteEndedAt;
 
   Job({
     required this.id,
     required this.clientId,
     required this.clientName,
     required this.clientAddress,
+    required this.clientEmail,
     required this.userId,
     required this.status,
     this.description,
@@ -25,6 +29,8 @@ class Job {
     required this.createdAt,
     required this.updatedAt,
     this.calendarDate,
+    this.onSiteStartedAt,
+    this.onSiteEndedAt,
   });
 
   factory Job.fromJson(Map<String, dynamic> json) {
@@ -43,6 +49,7 @@ class Job {
       clientId: json['client'] ?? '',
       clientName: clientName,
       clientAddress: clientAddress,
+      clientEmail: expand?['client']?['email'] ?? '',
       userId: json['user'] ?? '',
       status: json['status'] ?? 'pending',
       description: json['description'],
@@ -51,6 +58,8 @@ class Job {
       createdAt: DateTime.tryParse(json['created'] ?? '') ?? DateTime.now(),
       updatedAt: DateTime.tryParse(json['updated'] ?? '') ?? DateTime.now(),
       calendarDate: json['calendar_date'],
+      onSiteStartedAt: DateTime.tryParse(json['on_site_started_at'] ?? ''),
+      onSiteEndedAt: DateTime.tryParse(json['on_site_ended_at'] ?? ''),
     );
   }
 
@@ -81,12 +90,16 @@ class Job {
     DateTime? createdAt,
     DateTime? updatedAt,
     String? calendarDate,
+    String? clientEmail,
+    DateTime? onSiteStartedAt,
+    DateTime? onSiteEndedAt,
   }) {
     return Job(
       id: id ?? this.id,
       clientId: clientId ?? this.clientId,
       clientName: clientName ?? this.clientName,
       clientAddress: clientAddress ?? this.clientAddress,
+      clientEmail: clientEmail ?? this.clientEmail,
       userId: userId ?? this.userId,
       status: status ?? this.status,
       description: description ?? this.description,
@@ -95,6 +108,8 @@ class Job {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       calendarDate: calendarDate ?? this.calendarDate,
+      onSiteStartedAt: onSiteStartedAt ?? this.onSiteStartedAt,
+      onSiteEndedAt: onSiteEndedAt ?? this.onSiteEndedAt,
     );
   }
 }

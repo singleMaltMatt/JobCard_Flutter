@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
 import '../models/user.dart';
 import 'pocketbase_client.dart';
+
+const _kUserKey = 'pb_user';
 
 class AuthService {
   final PocketBaseClient _client;
@@ -26,7 +29,11 @@ class AuthService {
         final userId = record['id'] as String;
 
         _client.setAuth(token, userId);
-        return AppUser.fromJson(record);
+        await _client.saveAuth();
+        final user = AppUser.fromJson(record);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_kUserKey, jsonEncode(record));
+        return user;
       } else {
         final error = jsonDecode(response.body);
         throw AuthException(
@@ -66,9 +73,25 @@ class AuthService {
     }
   }
 
+  /// Restore a previously saved session. Returns the user if successful.
+  Future<AppUser?> tryRestoreAuth() async {
+    final restored = await _client.restoreAuth();
+    if (!restored) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final userJson = prefs.getString(_kUserKey);
+    if (userJson == null) return null;
+    try {
+      return AppUser.fromJson(jsonDecode(userJson) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Logout
   void logout() {
-    _client.clearAuth();
+    _client.clearSavedAuth();
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.remove(_kUserKey));
   }
 
   /// Check if user is authenticated

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../config/theme.dart';
 import '../config/constants.dart';
 
-class WorkflowDropdown extends StatelessWidget {
+class WorkflowDropdown extends StatefulWidget {
   final String currentStatus;
   final ValueChanged<String> onChanged;
 
@@ -12,46 +12,13 @@ class WorkflowDropdown extends StatelessWidget {
     required this.onChanged,
   });
 
-  /// Get the list of valid next steps from the current status
-  List<String> _getNextSteps() {
-    switch (currentStatus) {
-      case 'accepted':
-        return ['on_route'];
-      case 'on_route':
-        return ['on_site'];
-      case 'on_site':
-        return ['completed'];
-      default:
-        return [];
-    }
-  }
+  @override
+  State<WorkflowDropdown> createState() => _WorkflowDropdownState();
+}
 
+class _WorkflowDropdownState extends State<WorkflowDropdown> {
   @override
   Widget build(BuildContext context) {
-    final nextSteps = _getNextSteps();
-
-    if (nextSteps.isEmpty) {
-      return Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              _statusIcon(currentStatus),
-              const SizedBox(width: 12),
-              Text(
-                'Status: ${AppConstants.statusLabel(currentStatus)}',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Padding(
@@ -61,20 +28,22 @@ class WorkflowDropdown extends StatelessWidget {
           children: [
             Row(
               children: [
-                _statusIcon(currentStatus),
+                _statusIcon(widget.currentStatus),
                 const SizedBox(width: 12),
-                Text(
-                  'Current: ${AppConstants.statusLabel(currentStatus)}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
+                Expanded(
+                  child: Text(
+                    'Current: ${AppConstants.statusLabel(widget.currentStatus)}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 12),
             const Text(
-              'Next step:',
+              'Change status:',
               style: TextStyle(
                 fontSize: 13,
                 color: AppTheme.primaryGrey,
@@ -88,9 +57,10 @@ class WorkflowDropdown extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              initialValue: null,
-              hint: const Text('Select next step...'),
-              items: nextSteps.map((step) {
+              hint: Text(AppConstants.statusLabel(widget.currentStatus)),
+              items: AppConstants.jobStatuses
+                  .where((s) => AppConstants.jobStatuses.indexOf(s) > AppConstants.jobStatuses.indexOf(widget.currentStatus))
+                  .map((step) {
                 return DropdownMenuItem(
                   value: step,
                   child: Row(
@@ -104,7 +74,7 @@ class WorkflowDropdown extends StatelessWidget {
               }).toList(),
               onChanged: (value) {
                 if (value != null) {
-                  onChanged(value);
+                  widget.onChanged(value);
                 }
               },
             ),

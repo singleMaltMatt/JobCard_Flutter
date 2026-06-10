@@ -21,11 +21,15 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _navigateAfterDelay() async {
-    await Future.delayed(const Duration(seconds: 3));
+    final authProvider = context.read<AuthProvider>();
+
+    // Restore saved session and show splash for at least 2 seconds in parallel
+    await Future.wait([
+      authProvider.tryRestoreAuth(),
+      Future.delayed(const Duration(seconds: 2)),
+    ]);
 
     if (!mounted) return;
-
-    final authProvider = context.read<AuthProvider>();
 
     if (authProvider.isAuthenticated) {
       // Load data and go to dashboard

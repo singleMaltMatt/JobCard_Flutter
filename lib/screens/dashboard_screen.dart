@@ -24,7 +24,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     final jobProvider = context.read<JobProvider>();
-    _pageController = PageController(initialPage: jobProvider.selectedTabIndex);
+    // Start on Active tab
+    jobProvider.selectedTabIndex = 1;
+    _pageController = PageController(initialPage: 1);
   }
 
   @override

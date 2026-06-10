@@ -5,11 +5,13 @@ import 'services/pocketbase_client.dart';
 import 'services/auth_service.dart';
 import 'services/job_service.dart';
 import 'services/client_service.dart';
+import 'services/timer_notification_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/job_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  TimerNotificationService.init();
 
   // Initialize services
   final pocketBaseClient = PocketBaseClient();

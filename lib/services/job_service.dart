@@ -122,9 +122,13 @@ class JobService {
   /// Update job status
   Future<void> updateJobStatus(String jobId, String status) async {
     try {
+      final body = <String, dynamic>{'status': status};
+      if (status == 'on_site') {
+        body['on_site_started_at'] = DateTime.now().toUtc().toIso8601String();
+      }
       final response = await _client.patch(
         ApiConfig.jobEndpoint(jobId),
-        body: {'status': status},
+        body: body,
       );
 
       if (response.statusCode != 200) {
@@ -148,6 +152,7 @@ class JobService {
           'status': 'completed',
           'description': description,
           'email_sent': emailSent,
+          'on_site_ended_at': DateTime.now().toUtc().toIso8601String(),
         },
       );
 
