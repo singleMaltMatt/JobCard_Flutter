@@ -1,7 +1,10 @@
+import 'dart:convert';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 class SignaturePad extends StatefulWidget {
-  final void Function(dynamic imageData) onSign;
+  final void Function(String? base64Image) onSign;
   final bool readOnly;
 
   const SignaturePad({super.key, required this.onSign, this.readOnly = false});
@@ -14,6 +17,29 @@ class _SignaturePadState extends State<SignaturePad> {
   final List<List<Offset>> _points = [];
   List<Offset> _currentLine = [];
   bool _isLocked = false;
+  final _repaintKey = GlobalKey();
+
+  Future<void> _acceptSignature() async {
+    setState(() => _isLocked = true);
+    try {
+      final boundary = _repaintKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      final image = await boundary.toImage(pixelRatio: 2.0);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData != null) {
+        final base64Str = base64Encode(byteData.buffer.asUint8List());
+        widget.onSign('data:image/png;base64,$base64Str');
+      } else {
+        widget.onSign(null);
+      }
+    } catch (_) {
+      widget.onSign(null);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Signature accepted and locked!')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +72,9 @@ class _SignaturePadState extends State<SignaturePad> {
                   _currentLine = [];
                 });
               },
-              child: Container(
+              child: RepaintBoundary(
+                key: _repaintKey,
+                child: Container(
                 width: double.infinity,
                 height: 200,
                 color: Colors.white,
@@ -84,6 +112,7 @@ class _SignaturePadState extends State<SignaturePad> {
             ),
           ),
         ),
+      ),
         const SizedBox(height: 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -102,13 +131,7 @@ class _SignaturePadState extends State<SignaturePad> {
             if (!_isLocked)
               TextButton.icon(
                 onPressed: _points.isNotEmpty || _currentLine.isNotEmpty
-                    ? () {
-                        setState(() => _isLocked = true);
-                        widget.onSign(true);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Signature accepted and locked!')),
-                        );
-                      }
+                    ? _acceptSignature
                     : null,
                 icon: const Icon(Icons.check),
                 label: const Text('Accept Signature'),

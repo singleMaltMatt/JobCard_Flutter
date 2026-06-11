@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../config/api_config.dart';
 import '../config/theme.dart';
 import '../models/job.dart';
+import '../providers/auth_provider.dart';
 import '../providers/job_provider.dart';
 import 'signature_pad.dart';
 
@@ -19,13 +21,17 @@ class CompleteJobDialog extends StatefulWidget {
 
 class _CompleteJobDialogState extends State<CompleteJobDialog> {
   final _descriptionController = TextEditingController();
+  final _signatureNameController = TextEditingController();
   bool _getSignature = false;
   bool _sendEmail = false;
   bool _isSubmitting = false;
+  String? _capturedSignature;
+  DateTime? _departedTime;
 
   @override
   void dispose() {
     _descriptionController.dispose();
+    _signatureNameController.dispose();
     super.dispose();
   }
 
@@ -86,6 +92,21 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
   }
 
   Future<void> _generateAndSendEmail() async {
+    final technicianName = context.read<AuthProvider>().user?.username ?? '';
+    final now = _departedTime ?? DateTime.now();
+    final arrived = widget.job.onSiteStartedAt?.toLocal();
+    final departed = now.toLocal();
+    final timeFmt = DateFormat('HH:mm');
+    final dateFmt = DateFormat('d MMM yyyy HH:mm');
+
+    String timeSpent = '';
+    if (arrived != null) {
+      final diff = departed.difference(arrived);
+      final h = diff.inHours;
+      final m = diff.inMinutes % 60;
+      timeSpent = h > 0 ? '${h}h ${m}m' : '${m}m';
+    }
+
     // Step 1: generate PDF and base64-encode the bytes
     String? pdfBase64;
     try {
@@ -95,9 +116,18 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
         body: jsonEncode({
           'clientName': widget.job.clientName,
           'clientAddress': widget.job.clientAddress,
-          'jobDate': widget.job.calendarDate ?? DateTime.now().toIso8601String(),
+          'jobNumber': widget.job.id,
+          'appointmentDetails': widget.job.calendarDate != null
+              ? DateFormat('d MMM yyyy').format(DateTime.parse(widget.job.calendarDate!))
+              : '',
+          'arrivedTime': arrived != null ? timeFmt.format(arrived) : '',
+          'departedTime': timeFmt.format(departed),
+          'timeSpent': timeSpent,
           'description': _descriptionController.text.trim(),
-          'status': 'completed',
+          'signatureName': _signatureNameController.text.trim(),
+          'signature': _capturedSignature,
+          'technicianName': technicianName,
+          'completedDate': dateFmt.format(departed),
         }),
       );
       if (pdfResponse.statusCode == 200) {
@@ -227,13 +257,27 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                         ),
 
                         // Signature pad (shown when checkbox is checked)
-                        // NOT wrapped in scrollable - it gets its own fixed area
                         if (_getSignature) ...[
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _signatureNameController,
+                            decoration: InputDecoration(
+                              labelText: 'Signature Name',
+                              hintText: 'Customer full name',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                           SizedBox(
                             height: 260,
                             child: SignaturePad(
-                              onSign: (data) {
-                                // Signature captured - data can be used for PDF
+                              onSign: (base64Image) {
+                                setState(() {
+                                  _capturedSignature = base64Image;
+                                  _departedTime = DateTime.now();
+                                });
                               },
                             ),
                           ),
