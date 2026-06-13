@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../config/theme.dart';
 import '../config/constants.dart';
 
-class WorkflowDropdown extends StatefulWidget {
+class WorkflowDropdown extends StatelessWidget {
   final String currentStatus;
   final ValueChanged<String> onChanged;
 
@@ -13,12 +13,13 @@ class WorkflowDropdown extends StatefulWidget {
   });
 
   @override
-  State<WorkflowDropdown> createState() => _WorkflowDropdownState();
-}
-
-class _WorkflowDropdownState extends State<WorkflowDropdown> {
-  @override
   Widget build(BuildContext context) {
+    final nextStatuses = AppConstants.jobStatuses
+        .where((s) =>
+            AppConstants.jobStatuses.indexOf(s) >
+            AppConstants.jobStatuses.indexOf(currentStatus))
+        .toList();
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Padding(
@@ -28,11 +29,11 @@ class _WorkflowDropdownState extends State<WorkflowDropdown> {
           children: [
             Row(
               children: [
-                _statusIcon(widget.currentStatus),
+                _statusIcon(currentStatus),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Current: ${AppConstants.statusLabel(widget.currentStatus)}',
+                    'Current: ${AppConstants.statusLabel(currentStatus)}',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
@@ -50,33 +51,35 @@ class _WorkflowDropdownState extends State<WorkflowDropdown> {
               ),
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
+            InputDecorator(
               decoration: InputDecoration(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              hint: Text(AppConstants.statusLabel(widget.currentStatus)),
-              items: AppConstants.jobStatuses
-                  .where((s) => AppConstants.jobStatuses.indexOf(s) > AppConstants.jobStatuses.indexOf(widget.currentStatus))
-                  .map((step) {
-                return DropdownMenuItem(
-                  value: step,
-                  child: Row(
-                    children: [
-                      _statusIcon(step),
-                      const SizedBox(width: 8),
-                      Text(AppConstants.statusLabel(step)),
-                    ],
-                  ),
-                );
-              }).toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  widget.onChanged(value);
-                }
-              },
+              child: DropdownButton<String>(
+                value: null,
+                isExpanded: true,
+                underline: const SizedBox(),
+                hint: const Text('Select next status...'),
+                items: nextStatuses.map((step) {
+                  return DropdownMenuItem(
+                    value: step,
+                    child: Row(
+                      children: [
+                        _statusIcon(step),
+                        const SizedBox(width: 8),
+                        Text(AppConstants.statusLabel(step)),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value != null) onChanged(value);
+                },
+              ),
             ),
           ],
         ),

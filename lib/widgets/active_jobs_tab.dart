@@ -15,7 +15,8 @@ class ActiveJobsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<JobProvider>(
       builder: (context, jobProvider, _) {
-        if (jobProvider.isLoading) {
+        // Only show full-screen spinner on the very first load (list still empty)
+        if (jobProvider.isLoading && jobProvider.activeJobs.isEmpty) {
           return const Center(child: CircularProgressIndicator());
         }
 
@@ -47,7 +48,8 @@ class ActiveJobsTab extends StatelessWidget {
                   itemCount: jobProvider.activeJobs.length,
                   itemBuilder: (context, index) {
                     final job = jobProvider.activeJobs[index];
-                    return _ActiveJobCard(job: job);
+                    // ValueKey preserves timer state across list rebuilds
+                    return _ActiveJobCard(key: ValueKey(job.id), job: job);
                   },
                 ),
         );
@@ -59,7 +61,7 @@ class ActiveJobsTab extends StatelessWidget {
 class _ActiveJobCard extends StatefulWidget {
   final dynamic job;
 
-  const _ActiveJobCard({required this.job});
+  const _ActiveJobCard({super.key, required this.job});
 
   @override
   State<_ActiveJobCard> createState() => _ActiveJobCardState();
@@ -68,6 +70,8 @@ class _ActiveJobCard extends StatefulWidget {
 class _ActiveJobCardState extends State<_ActiveJobCard> {
   Timer? _timer;
   Duration _elapsed = Duration.zero;
+  // Fallback when on_site_started_at is not in PocketBase yet
+  DateTime? _sessionStart;
 
   @override
   void initState() {
@@ -91,21 +95,32 @@ class _ActiveJobCardState extends State<_ActiveJobCard> {
   }
 
   void _startTimerIfOnSite() {
-    if (widget.job.status == 'on_site' && widget.job.onSiteStartedAt != null) {
-      _elapsed = DateTime.now().difference(widget.job.onSiteStartedAt!);
-      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-        setState(() {
-          _elapsed = DateTime.now().difference(widget.job.onSiteStartedAt!);
-        });
-      });
-      TimerNotificationService.startTimer(widget.job.onSiteStartedAt!);
-    }
+    if (widget.job.status != 'on_site') return;
+
+    // Use the PocketBase timestamp when available; otherwise count from when
+    // the card first observed the on_site status (survives list rebuilds via ValueKey)
+    _sessionStart ??= DateTime.now();
+    final startTime = widget.job.onSiteStartedAt ?? _sessionStart!;
+    _elapsed = DateTime.now().difference(startTime);
+
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _elapsed = DateTime.now().difference(startTime));
+    });
+
+    // Start the lock-screen / notification timer with whatever start time we have
+    TimerNotificationService.startTimer(startTime)
+        .catchError((e) => debugPrint('Timer notification error: $e'));
   }
 
   void _stopTimer() {
-    _timer?.cancel();
-    _timer = null;
-    TimerNotificationService.stopTimer();
+    if (_timer != null) {
+      _timer!.cancel();
+      _timer = null;
+      _sessionStart = null;
+      TimerNotificationService.stopTimer()
+          .catchError((e) => debugPrint('Stop notification error: $e'));
+    }
   }
 
   String _formatDuration(Duration d) {

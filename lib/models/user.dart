@@ -2,6 +2,7 @@ class AppUser {
   final String id;
   final String username;
   final String email;
+  final String? name;
   final String? avatarUrl;
   final bool verified;
   final DateTime created;
@@ -10,6 +11,7 @@ class AppUser {
     required this.id,
     required this.username,
     required this.email,
+    this.name,
     this.avatarUrl,
     this.verified = false,
     required this.created,
@@ -20,6 +22,7 @@ class AppUser {
       id: json['id'] ?? '',
       username: json['username'] ?? json['email'] ?? '',
       email: json['email'] ?? '',
+      name: json['name'] as String?,
       avatarUrl: json['avatar'],
       verified: json['verified'] ?? false,
       created: DateTime.tryParse(json['created'] ?? '') ?? DateTime.now(),
