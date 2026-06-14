@@ -14,6 +14,10 @@ class Job {
   final String? calendarDate;
   final DateTime? onSiteStartedAt;
   final DateTime? onSiteEndedAt;
+  final String jobType;
+  final String jobNumber;
+  final bool isRecurring;
+  final String? recurrenceInterval;
 
   Job({
     required this.id,
@@ -31,6 +35,10 @@ class Job {
     this.calendarDate,
     this.onSiteStartedAt,
     this.onSiteEndedAt,
+    this.jobType = 'site_visit',
+    this.jobNumber = '',
+    this.isRecurring = false,
+    this.recurrenceInterval,
   });
 
   factory Job.fromJson(Map<String, dynamic> json) {
@@ -60,7 +68,21 @@ class Job {
       calendarDate: json['calendar_date'],
       onSiteStartedAt: DateTime.tryParse(json['on_site_started_at'] ?? ''),
       onSiteEndedAt: DateTime.tryParse(json['on_site_ended_at'] ?? ''),
+      jobType: json['job_type'] ?? 'site_visit',
+      jobNumber: json['job_number'] ?? '',
+      isRecurring: json['is_recurring'] ?? false,
+      recurrenceInterval: json['recurrence_interval'],
     );
+  }
+
+  /// Display label for job type
+  String get jobTypeLabel {
+    switch (jobType) {
+      case 'maintenance': return 'Maintenance';
+      case 'call_out': return 'Call Out';
+      case 'site_visit':
+      default: return 'Site Visit';
+    }
   }
 
   Map<String, dynamic> toJson() {
@@ -71,6 +93,10 @@ class Job {
       'description': description,
       'email_sent': emailSent,
       'calendar_date': calendarDate,
+      'job_type': jobType,
+      'job_number': jobNumber,
+      'is_recurring': isRecurring,
+      'recurrence_interval': recurrenceInterval,
     };
   }
 
@@ -82,6 +108,7 @@ class Job {
     String? clientId,
     String? clientName,
     String? clientAddress,
+    String? clientEmail,
     String? userId,
     String? status,
     String? description,
@@ -90,9 +117,12 @@ class Job {
     DateTime? createdAt,
     DateTime? updatedAt,
     String? calendarDate,
-    String? clientEmail,
     DateTime? onSiteStartedAt,
     DateTime? onSiteEndedAt,
+    String? jobType,
+    String? jobNumber,
+    bool? isRecurring,
+    String? recurrenceInterval,
   }) {
     return Job(
       id: id ?? this.id,
@@ -110,6 +140,10 @@ class Job {
       calendarDate: calendarDate ?? this.calendarDate,
       onSiteStartedAt: onSiteStartedAt ?? this.onSiteStartedAt,
       onSiteEndedAt: onSiteEndedAt ?? this.onSiteEndedAt,
+      jobType: jobType ?? this.jobType,
+      jobNumber: jobNumber ?? this.jobNumber,
+      isRecurring: isRecurring ?? this.isRecurring,
+      recurrenceInterval: recurrenceInterval ?? this.recurrenceInterval,
     );
   }
 }

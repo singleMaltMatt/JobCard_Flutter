@@ -53,24 +53,24 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       jobId: widget.job.id,
       description: _descriptionController.text.trim(),
       emailSent: _sendEmail,
+      originalJob: widget.job,
     );
 
     if (mounted) {
       setState(() => _isSubmitting = false);
 
       if (success) {
-        // Close the dialog immediately
         Navigator.of(context).pop();
 
-        // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Job completed successfully!'),
+          SnackBar(
+            content: Text(widget.job.isRecurring
+                ? 'Job completed! Next occurrence scheduled.'
+                : 'Job completed successfully!'),
             backgroundColor: Colors.green,
           ),
         );
 
-        // Fire email in the background (non-blocking) if requested
         if (_sendEmail) {
           _sendCompletionEmail(context);
         }
@@ -92,7 +92,12 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
   }
 
   Future<void> _generateAndSendEmail() async {
-    final technicianName = context.read<AuthProvider>().user?.username ?? '';
+    final user = context.read<AuthProvider>().user;
+    // Use full name if available, fall back to username
+    final technicianName = (user?.name?.isNotEmpty == true)
+        ? user!.name!
+        : (user?.username ?? '');
+
     final now = _departedTime ?? DateTime.now();
     final arrived = widget.job.onSiteStartedAt?.toLocal();
     final departed = now.toLocal();
@@ -107,7 +112,6 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       timeSpent = h > 0 ? '${h}h ${m}m' : '${m}m';
     }
 
-    // Step 1: generate PDF and base64-encode the bytes
     String? pdfBase64;
     try {
       final pdfResponse = await http.post(
@@ -116,9 +120,11 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
         body: jsonEncode({
           'clientName': widget.job.clientName,
           'clientAddress': widget.job.clientAddress,
-          'jobNumber': widget.job.id,
+          'jobNumber': widget.job.jobNumber,
+          'jobType': widget.job.jobTypeLabel,
           'appointmentDetails': widget.job.calendarDate != null
-              ? DateFormat('d MMM yyyy').format(DateTime.parse(widget.job.calendarDate!))
+              ? DateFormat('d MMM yyyy')
+                  .format(DateTime.parse(widget.job.calendarDate!))
               : '',
           'arrivedTime': arrived != null ? timeFmt.format(arrived) : '',
           'departedTime': timeFmt.format(departed),
@@ -139,13 +145,12 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       debugPrint('PDF generation error: $e');
     }
 
-    // Step 2: send email, attaching PDF if generated successfully
     final emailResponse = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/email/send-email'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'to': widget.job.clientEmail,
-        'subject': 'Job Completed - JobCard Tracker',
+        'subject': 'Job Completed - ${widget.job.jobTypeLabel} ${widget.job.jobNumber}',
         'clientName': widget.job.clientName,
         'clientAddress': widget.job.clientAddress,
         'jobDate': widget.job.calendarDate ?? DateTime.now().toIso8601String(),
@@ -174,13 +179,10 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
         maxChildSize: 0.95,
         expand: false,
         builder: (context, scrollController) {
-          // Only use the provided scrollController for the DraggableScrollableSheet,
-          // but DON'T wrap everything in SingleChildScrollView to avoid scroll conflicts with signature pad
           return NotificationListener<ScrollNotification>(
             onNotification: (notification) => false,
             child: Column(
               children: [
-                // Handle bar
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Center(
@@ -194,7 +196,6 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                     ),
                   ),
                 ),
-                // Scrollable content area
                 Expanded(
                   child: SingleChildScrollView(
                     controller: scrollController,
@@ -202,7 +203,6 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Title
                         const Text(
                           'Complete Job',
                           style: TextStyle(
@@ -211,9 +211,16 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                             color: AppTheme.primaryBlack,
                           ),
                         ),
-                        const SizedBox(height: 8),
-
-                        // Job info
+                        const SizedBox(height: 4),
+                        Text(
+                          '${widget.job.jobTypeLabel} · ${widget.job.jobNumber}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.primaryBlue,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
                         Text(
                           '${widget.job.clientName} - ${widget.job.clientAddress}',
                           style: const TextStyle(
@@ -223,7 +230,6 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Description text box
                         const Text(
                           'Work Description *',
                           style: TextStyle(
@@ -244,7 +250,6 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                         ),
                         const SizedBox(height: 20),
 
-                        // Get Signature checkbox
                         CheckboxListTile(
                           title: const Text('Get Signature'),
                           subtitle: const Text('Client signs digitally on screen'),
@@ -256,7 +261,6 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                           activeColor: AppTheme.primaryBlue,
                         ),
 
-                        // Signature pad (shown when checkbox is checked)
                         if (_getSignature) ...[
                           const SizedBox(height: 8),
                           TextFormField(
@@ -284,10 +288,10 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                           const SizedBox(height: 16),
                         ],
 
-                        // Send Email checkbox
                         CheckboxListTile(
                           title: const Text('Send Email'),
-                          subtitle: Text('Send job card to ${widget.job.clientName}'),
+                          subtitle:
+                              Text('Send job card to ${widget.job.clientName}'),
                           value: _sendEmail,
                           onChanged: (v) {
                             setState(() => _sendEmail = v ?? false);
@@ -297,7 +301,6 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Complete Job button
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
@@ -312,10 +315,13 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                                     ),
                                   )
                                 : const Icon(Icons.check_circle),
-                            label: Text(_isSubmitting ? 'Completing...' : 'Complete Job'),
+                            label: Text(_isSubmitting
+                                ? 'Completing...'
+                                : 'Complete Job'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 16),
                             ),
                           ),
                         ),

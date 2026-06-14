@@ -50,7 +50,6 @@ class JobProvider extends ChangeNotifier {
       _completedJobs = results[2] as List<Job>;
       _clients = results[3] as List<Client>;
 
-      // Auto-select tab: if active jobs exist, go to Active tab
       if (_activeJobs.isNotEmpty && _selectedTabIndex == 0) {
         _selectedTabIndex = 1;
       } else if (_activeJobs.isEmpty && _selectedTabIndex == 1) {
@@ -69,10 +68,19 @@ class JobProvider extends ChangeNotifier {
   /// Create a new job
   Future<bool> createJob({
     required String clientId,
-    required String calendarDate,
+    required String jobType,
+    String? calendarDate,
+    bool isRecurring = false,
+    String? recurrenceInterval,
   }) async {
     try {
-      await _jobService.createJob(clientId: clientId, calendarDate: calendarDate);
+      await _jobService.createJob(
+        clientId: clientId,
+        jobType: jobType,
+        calendarDate: calendarDate,
+        isRecurring: isRecurring,
+        recurrenceInterval: recurrenceInterval,
+      );
       await loadAll();
       return true;
     } catch (e) {
@@ -100,12 +108,14 @@ class JobProvider extends ChangeNotifier {
     required String jobId,
     required String description,
     required bool emailSent,
+    Job? originalJob,
   }) async {
     try {
       await _jobService.completeJob(
         jobId: jobId,
         description: description,
         emailSent: emailSent,
+        originalJob: originalJob,
       );
       await loadAll();
       return true;
@@ -115,6 +125,7 @@ class JobProvider extends ChangeNotifier {
       return false;
     }
   }
+
   /// Reload clients only
   Future<void> loadClients() async {
     try {
@@ -149,6 +160,7 @@ class JobProvider extends ChangeNotifier {
       return null;
     }
   }
+
   /// Clear error
   void clearError() {
     _error = null;

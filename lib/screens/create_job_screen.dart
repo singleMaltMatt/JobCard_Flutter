@@ -16,17 +16,30 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
   DateTime _selectedDate = DateTime.now();
   bool _isCreatingClient = false;
   bool _isSubmitting = false;
+  String _selectedJobType = 'site_visit';
+  bool _isRecurring = false;
+  String _recurrenceInterval = 'weekly';
 
-  // New client fields
   final _clientNameController = TextEditingController();
   final _clientEmailController = TextEditingController();
   final _clientPhoneController = TextEditingController();
   final _clientAddressController = TextEditingController();
 
+  static const _jobTypes = [
+    {'value': 'site_visit', 'label': 'Site Visit'},
+    {'value': 'maintenance', 'label': 'Maintenance'},
+    {'value': 'call_out', 'label': 'Call Out'},
+  ];
+
+  static const _intervals = [
+    {'value': 'weekly', 'label': 'Weekly'},
+    {'value': 'fortnightly', 'label': 'Fortnightly'},
+    {'value': 'monthly', 'label': 'Monthly'},
+  ];
+
   @override
   void initState() {
     super.initState();
-    // Refresh clients every time this screen opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<JobProvider>().loadClients();
     });
@@ -48,9 +61,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
       firstDate: DateTime.now().subtract(const Duration(days: 30)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
-    if (picked != null) {
-      setState(() => _selectedDate = picked);
-    }
+    if (picked != null) setState(() => _selectedDate = picked);
   }
 
   Future<void> _submit() async {
@@ -61,7 +72,6 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
     final jobProvider = context.read<JobProvider>();
     String clientId = _selectedClientId ?? '';
 
-    // Create new client first if needed
     if (_isCreatingClient) {
       final newClient = await jobProvider.createClient(
         name: _clientNameController.text.trim(),
@@ -82,7 +92,6 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
         setState(() => _isSubmitting = false);
         return;
       }
-
       clientId = newClient.id;
     }
 
@@ -96,7 +105,10 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
 
     final success = await jobProvider.createJob(
       clientId: clientId,
+      jobType: _selectedJobType,
       calendarDate: DateFormat('yyyy-MM-dd').format(_selectedDate),
+      isRecurring: _isRecurring,
+      recurrenceInterval: _isRecurring ? _recurrenceInterval : null,
     );
 
     if (mounted) {
@@ -133,7 +145,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Toggle between select existing or create new client
+                  // Client toggle
                   Row(
                     children: [
                       Expanded(
@@ -202,9 +214,28 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                           );
                         }).toList(),
                         onChanged: (v) => setState(() => _selectedClientId = v),
-                        validator: (v) => (v == null || v.isEmpty) ? 'Select a client' : null,
+                        validator: (v) =>
+                            (v == null || v.isEmpty) ? 'Select a client' : null,
                       ),
                   ],
+
+                  const SizedBox(height: 24),
+
+                  // Job type
+                  DropdownButtonFormField<String>(
+                    decoration: const InputDecoration(
+                      labelText: 'Job Type *',
+                      prefixIcon: Icon(Icons.work_outline),
+                    ),
+                    value: _selectedJobType,
+                    items: _jobTypes.map((type) {
+                      return DropdownMenuItem(
+                        value: type['value'],
+                        child: Text(type['label']!),
+                      );
+                    }).toList(),
+                    onChanged: (v) => setState(() => _selectedJobType = v!),
+                  ),
 
                   const SizedBox(height: 24),
 
@@ -216,9 +247,42 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                         labelText: 'Job Date',
                         prefixIcon: Icon(Icons.calendar_today),
                       ),
-                      child: Text(DateFormat('EEEE, MMMM d, yyyy').format(_selectedDate)),
+                      child: Text(
+                          DateFormat('EEEE, MMMM d, yyyy').format(_selectedDate)),
                     ),
                   ),
+
+                  const SizedBox(height: 16),
+
+                  // Recurring toggle
+                  SwitchListTile(
+                    title: const Text('Recurring Job'),
+                    subtitle:
+                        const Text('Automatically reschedule after completion'),
+                    value: _isRecurring,
+                    onChanged: (v) => setState(() => _isRecurring = v),
+                    activeColor: Theme.of(context).primaryColor,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+
+                  if (_isRecurring) ...[
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(
+                        labelText: 'Repeat Every',
+                        prefixIcon: Icon(Icons.repeat),
+                      ),
+                      value: _recurrenceInterval,
+                      items: _intervals.map((interval) {
+                        return DropdownMenuItem(
+                          value: interval['value'],
+                          child: Text(interval['label']!),
+                        );
+                      }).toList(),
+                      onChanged: (v) =>
+                          setState(() => _recurrenceInterval = v!),
+                    ),
+                  ],
 
                   const SizedBox(height: 32),
 
@@ -230,7 +294,8 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                           ? const SizedBox(
                               height: 20,
                               width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
                             )
                           : const Text('Create Job'),
                     ),

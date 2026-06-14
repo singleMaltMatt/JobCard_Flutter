@@ -89,30 +89,60 @@ class JobService {
     }
   }
 
+  /// Generate next job number (GS_0001 format)
+  Future<String> _generateJobNumber() async {
+    try {
+      final response = await _client.get(
+        ApiConfig.jobsEndpoint,
+        queryParams: {'perPage': '1'},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final total = (data['totalItems'] as int? ?? 0) + 1;
+        return 'GS_${total.toString().padLeft(4, '0')}';
+      }
+    } catch (_) {}
+    return 'GS_${DateTime.now().millisecondsSinceEpoch}';
+  }
+
   /// Create a new job
   Future<Job> createJob({
     required String clientId,
-    required String calendarDate,
+    required String jobType,
+    String? calendarDate,
+    bool isRecurring = false,
+    String? recurrenceInterval,
   }) async {
     try {
       final userId = _client.userId;
       if (userId == null) throw Exception('Not authenticated');
 
-      final response = await _client.post(
-        ApiConfig.jobsEndpoint,
-        body: {
-          'client': clientId,
-          'user': userId,
-          'status': 'pending',
-          'calendar_date': calendarDate,
-        },
-      );
+      final jobNumber = await _generateJobNumber();
+      final now = DateTime.now();
+      final date = calendarDate ??
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+      final body = <String, dynamic>{
+        'client': clientId,
+        'user': userId,
+        'status': 'pending',
+        'calendar_date': date,
+        'job_type': jobType,
+        'job_number': jobNumber,
+        'is_recurring': isRecurring,
+      };
+
+      if (isRecurring && recurrenceInterval != null) {
+        body['recurrence_interval'] = recurrenceInterval;
+      }
+
+      final response = await _client.post(ApiConfig.jobsEndpoint, body: body);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return Job.fromJson(data);
       } else {
-        throw Exception('Failed to create job');
+        throw Exception('Failed to create job: ${response.body}');
       }
     } catch (e) {
       throw Exception('Failed to create job: $e');
@@ -126,10 +156,7 @@ class JobService {
       if (status == 'on_site') {
         body['on_site_started_at'] = DateTime.now().toUtc().toIso8601String();
       }
-      final response = await _client.patch(
-        ApiConfig.jobEndpoint(jobId),
-        body: body,
-      );
+      final response = await _client.patch(ApiConfig.jobEndpoint(jobId), body: body);
 
       if (response.statusCode != 200) {
         throw Exception('Failed to update job status');
@@ -139,11 +166,12 @@ class JobService {
     }
   }
 
-  /// Update job with description and signature
+  /// Complete job and optionally spawn next recurring occurrence
   Future<void> completeJob({
     required String jobId,
     required String description,
     required bool emailSent,
+    Job? originalJob,
   }) async {
     try {
       final response = await _client.patch(
@@ -159,8 +187,44 @@ class JobService {
       if (response.statusCode != 200) {
         throw Exception('Failed to complete job');
       }
+
+      // Spawn next occurrence if recurring
+      if (originalJob != null &&
+          originalJob.isRecurring &&
+          originalJob.recurrenceInterval != null &&
+          originalJob.calendarDate != null) {
+        final nextDate = _nextOccurrence(
+          originalJob.calendarDate!,
+          originalJob.recurrenceInterval!,
+        );
+        await createJob(
+          clientId: originalJob.clientId,
+          jobType: originalJob.jobType,
+          calendarDate: nextDate,
+          isRecurring: true,
+          recurrenceInterval: originalJob.recurrenceInterval,
+        );
+      }
     } catch (e) {
       throw Exception('Failed to complete job: $e');
     }
+  }
+
+  /// Calculate next occurrence date
+  String _nextOccurrence(String currentDate, String interval) {
+    final date = DateTime.tryParse(currentDate) ?? DateTime.now();
+    DateTime next;
+    switch (interval) {
+      case 'fortnightly':
+        next = date.add(const Duration(days: 14));
+        break;
+      case 'monthly':
+        next = DateTime(date.year, date.month + 1, date.day);
+        break;
+      case 'weekly':
+      default:
+        next = date.add(const Duration(days: 7));
+    }
+    return '${next.year}-${next.month.toString().padLeft(2, '0')}-${next.day.toString().padLeft(2, '0')}';
   }
 }
