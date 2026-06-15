@@ -35,6 +35,20 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
     super.dispose();
   }
 
+  Future<void> _openSignatureDialog() async {
+    final result = await showDialog<String?>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const _SignatureDialog(),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _capturedSignature = result;
+        _departedTime = DateTime.now();
+      });
+    }
+  }
+
   Future<void> _completeJob() async {
     if (_descriptionController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -93,7 +107,6 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
 
   Future<void> _generateAndSendEmail() async {
     final user = context.read<AuthProvider>().user;
-    // Use full name if available, fall back to username
     final technicianName = (user?.name?.isNotEmpty == true)
         ? user!.name!
         : (user?.username ?? '');
@@ -134,6 +147,7 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
           'signature': _capturedSignature,
           'technicianName': technicianName,
           'completedDate': dateFmt.format(departed),
+          'companyLogo': '${ApiConfig.baseUrl}/static/logo.png',
         }),
       );
       if (pdfResponse.statusCode == 200) {
@@ -150,7 +164,8 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'to': widget.job.clientEmail,
-        'subject': 'Job Completed - ${widget.job.jobTypeLabel} ${widget.job.jobNumber}',
+        'subject':
+            'Job Completed - ${widget.job.jobTypeLabel} ${widget.job.jobNumber}',
         'clientName': widget.job.clientName,
         'clientAddress': widget.job.clientAddress,
         'jobDate': widget.job.calendarDate ?? DateTime.now().toIso8601String(),
@@ -179,161 +194,252 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
         maxChildSize: 0.95,
         expand: false,
         builder: (context, scrollController) {
-          return NotificationListener<ScrollNotification>(
-            onNotification: (notification) => false,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    controller: scrollController,
-                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Complete Job',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.primaryBlack,
-                          ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Complete Job',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryBlack,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${widget.job.jobTypeLabel} · ${widget.job.jobNumber}',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppTheme.primaryBlue,
-                            fontWeight: FontWeight.w500,
-                          ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${widget.job.jobTypeLabel} · ${widget.job.jobNumber}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.primaryBlue,
+                          fontWeight: FontWeight.w500,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${widget.job.clientName} - ${widget.job.clientAddress}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: AppTheme.primaryGrey,
-                          ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${widget.job.clientName} - ${widget.job.clientAddress}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppTheme.primaryGrey,
                         ),
-                        const SizedBox(height: 24),
+                      ),
+                      const SizedBox(height: 24),
 
-                        const Text(
-                          'Work Description *',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
+                      const Text(
+                        'Work Description *',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _descriptionController,
+                        maxLines: 6,
+                        decoration: InputDecoration(
+                          hintText: 'Describe all work completed on site...',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      CheckboxListTile(
+                        title: const Text('Get Signature'),
+                        subtitle:
+                            const Text('Client signs digitally on screen'),
+                        value: _getSignature,
+                        onChanged: (v) =>
+                            setState(() => _getSignature = v ?? false),
+                        controlAffinity: ListTileControlAffinity.trailing,
+                        activeColor: AppTheme.primaryBlue,
+                      ),
+
+                      if (_getSignature) ...[
                         const SizedBox(height: 8),
                         TextFormField(
-                          controller: _descriptionController,
-                          maxLines: 6,
+                          controller: _signatureNameController,
                           decoration: InputDecoration(
-                            hintText: 'Describe all work completed on site...',
+                            labelText: 'Signature Name',
+                            hintText: 'Customer full name',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 12),
 
-                        CheckboxListTile(
-                          title: const Text('Get Signature'),
-                          subtitle: const Text('Client signs digitally on screen'),
-                          value: _getSignature,
-                          onChanged: (v) {
-                            setState(() => _getSignature = v ?? false);
-                          },
-                          controlAffinity: ListTileControlAffinity.trailing,
-                          activeColor: AppTheme.primaryBlue,
-                        ),
-
-                        if (_getSignature) ...[
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            controller: _signatureNameController,
-                            decoration: InputDecoration(
-                              labelText: 'Signature Name',
-                              hintText: 'Customer full name',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
+                        if (_capturedSignature != null) ...[
+                          Container(
+                            height: 90,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              border:
+                                  Border.all(color: Colors.green, width: 2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.memory(
+                                base64Decode(
+                                    _capturedSignature!.split(',').last),
+                                fit: BoxFit.contain,
                               ),
                             ),
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(Icons.check_circle,
+                                  color: Colors.green, size: 16),
+                              const SizedBox(width: 6),
+                              const Text('Signature captured',
+                                  style: TextStyle(color: Colors.green)),
+                              const Spacer(),
+                              TextButton(
+                                onPressed: _openSignatureDialog,
+                                child: const Text('Re-sign'),
+                              ),
+                            ],
+                          ),
+                        ] else ...[
                           SizedBox(
-                            height: 260,
-                            child: SignaturePad(
-                              onSign: (base64Image) {
-                                setState(() {
-                                  _capturedSignature = base64Image;
-                                  _departedTime = DateTime.now();
-                                });
-                              },
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _openSignatureDialog,
+                              icon: const Icon(Icons.draw_outlined),
+                              label: const Text('Tap to Sign'),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 20),
+                                textStyle: const TextStyle(fontSize: 16),
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 16),
                         ],
+                        const SizedBox(height: 12),
+                      ],
 
-                        CheckboxListTile(
-                          title: const Text('Send Email'),
-                          subtitle:
-                              Text('Send job card to ${widget.job.clientName}'),
-                          value: _sendEmail,
-                          onChanged: (v) {
-                            setState(() => _sendEmail = v ?? false);
-                          },
-                          controlAffinity: ListTileControlAffinity.trailing,
-                          activeColor: AppTheme.primaryBlue,
-                        ),
-                        const SizedBox(height: 24),
+                      CheckboxListTile(
+                        title: const Text('Send Email'),
+                        subtitle: Text(
+                            'Send job card to ${widget.job.clientName}'),
+                        value: _sendEmail,
+                        onChanged: (v) =>
+                            setState(() => _sendEmail = v ?? false),
+                        controlAffinity: ListTileControlAffinity.trailing,
+                        activeColor: AppTheme.primaryBlue,
+                      ),
+                      const SizedBox(height: 24),
 
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: _isSubmitting ? null : _completeJob,
-                            icon: _isSubmitting
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(Icons.check_circle),
-                            label: Text(_isSubmitting
-                                ? 'Completing...'
-                                : 'Complete Job'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 16),
-                            ),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _isSubmitting ? null : _completeJob,
+                          icon: _isSubmitting
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.check_circle),
+                          label: Text(_isSubmitting
+                              ? 'Completing...'
+                              : 'Complete Job'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 16),
                           ),
                         ),
-                        const SizedBox(height: 16),
-                      ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// Fullscreen signature dialog — covers entire screen so there's no scroll conflict
+class _SignatureDialog extends StatelessWidget {
+  const _SignatureDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog.fullscreen(
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Cancel',
+                    onPressed: () => Navigator.of(context).pop(null),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Customer Signature',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(width: 48),
+                ],
+              ),
+              const Divider(),
+              const SizedBox(height: 4),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: SignaturePad(
+                        onSign: (base64) =>
+                            Navigator.of(context).pop(base64),
+                      ),
                     ),
                   ),
                 ),
-              ],
-            ),
-          );
-        },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

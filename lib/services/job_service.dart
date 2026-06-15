@@ -117,7 +117,6 @@ class JobService {
       final userId = _client.userId;
       if (userId == null) throw Exception('Not authenticated');
 
-      final jobNumber = await _generateJobNumber();
       final now = DateTime.now();
       final date = calendarDate ??
           '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
@@ -128,7 +127,6 @@ class JobService {
         'status': 'pending',
         'calendar_date': date,
         'job_type': jobType,
-        'job_number': jobNumber,
         'is_recurring': isRecurring,
       };
 

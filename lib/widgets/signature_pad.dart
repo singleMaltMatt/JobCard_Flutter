@@ -5,105 +5,132 @@ import 'package:flutter/rendering.dart';
 
 class SignaturePad extends StatefulWidget {
   final void Function(String? base64Image) onSign;
-  final bool readOnly;
 
-  const SignaturePad({super.key, required this.onSign, this.readOnly = false});
+  const SignaturePad({super.key, required this.onSign});
 
   @override
   State<SignaturePad> createState() => _SignaturePadState();
 }
 
 class _SignaturePadState extends State<SignaturePad> {
-  final List<List<Offset>> _points = [];
-  List<Offset> _currentLine = [];
-  bool _isLocked = false;
+  // Path grows incrementally — never rebuilt, just extended
+  Path _path = Path();
+  Offset? _lastPoint;
+
+  // Incrementing this triggers only the canvas repaint, not a widget rebuild
+  final _repaintTick = ValueNotifier<int>(0);
   final _repaintKey = GlobalKey();
 
-  Future<void> _acceptSignature() async {
-    setState(() => _isLocked = true);
+  bool _hasStrokes = false;
+  bool _isCapturing = false;
+
+  @override
+  void dispose() {
+    _repaintTick.dispose();  // ValueNotifier is disposable
+    super.dispose();
+  }
+
+  void _onPanStart(DragStartDetails d) {
+    final p = d.localPosition;
+    _path.moveTo(p.dx, p.dy);
+    _lastPoint = p;
+    if (!_hasStrokes) {
+      // Only setState here to enable the Accept button and hide the hint
+      setState(() => _hasStrokes = true);
+    } else {
+      _repaintTick.value++;
+    }
+  }
+
+  void _onPanUpdate(DragUpdateDetails d) {
+    final p = d.localPosition;
+    if (_lastPoint != null) {
+      // Quadratic Bezier through the midpoint gives smooth curves without
+      // needing to reprocess previously drawn segments
+      final mid = Offset(
+        (p.dx + _lastPoint!.dx) / 2,
+        (p.dy + _lastPoint!.dy) / 2,
+      );
+      _path.quadraticBezierTo(_lastPoint!.dx, _lastPoint!.dy, mid.dx, mid.dy);
+    }
+    _lastPoint = p;
+    // No setState — only the painter repaints
+    _repaintTick.value++;
+  }
+
+  void _onPanEnd(DragEndDetails d) {
+    if (_lastPoint != null) {
+      _path.lineTo(_lastPoint!.dx, _lastPoint!.dy);
+    }
+    _lastPoint = null;
+    _repaintTick.value++;
+  }
+
+  void _clear() {
+    setState(() {
+      _path = Path();
+      _lastPoint = null;
+      _hasStrokes = false;
+    });
+  }
+
+  Future<void> _accept() async {
+    setState(() => _isCapturing = true);
     try {
-      final boundary = _repaintKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      final boundary =
+          _repaintKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
       final image = await boundary.toImage(pixelRatio: 2.0);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData != null) {
-        final base64Str = base64Encode(byteData.buffer.asUint8List());
-        widget.onSign('data:image/png;base64,$base64Str');
+        final b64 = base64Encode(byteData.buffer.asUint8List());
+        widget.onSign('data:image/png;base64,$b64');
       } else {
         widget.onSign(null);
       }
     } catch (_) {
       widget.onSign(null);
     }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Signature accepted and locked!')),
-      );
-    }
+    if (mounted) setState(() => _isCapturing = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: _isLocked ? Colors.green : Colors.grey[400]!,
-              width: _isLocked ? 2 : 1,
-            ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(7),
+        Expanded(
+          child: RepaintBoundary(
+            key: _repaintKey,
             child: GestureDetector(
-              onPanStart: widget.readOnly || _isLocked ? null : (details) {
-                setState(() {
-                  _currentLine = [details.localPosition];
-                });
-              },
-              onPanUpdate: widget.readOnly || _isLocked ? null : (details) {
-                setState(() {
-                  _currentLine.add(details.localPosition);
-                });
-              },
-              onPanEnd: widget.readOnly || _isLocked ? null : (details) {
-                setState(() {
-                  _points.add(List.from(_currentLine));
-                  _currentLine = [];
-                });
-              },
-              child: RepaintBoundary(
-                key: _repaintKey,
-                child: Container(
-                width: double.infinity,
-                height: 200,
+              behavior: HitTestBehavior.opaque,
+              onPanStart: _onPanStart,
+              onPanUpdate: _onPanUpdate,
+              onPanEnd: _onPanEnd,
+              child: Container(
                 color: Colors.white,
                 child: Stack(
                   children: [
                     CustomPaint(
                       painter: _SignaturePainter(
-                        points: _points,
-                        currentLine: _currentLine,
+                        path: _path,
+                        repaint: _repaintTick,
                       ),
+                      child: const SizedBox.expand(),
                     ),
-                    if (_isLocked)
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.green,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.lock, color: Colors.white, size: 14),
-                              SizedBox(width: 4),
-                              Text('Signed', style: TextStyle(color: Colors.white, fontSize: 12)),
-                            ],
-                          ),
+                    if (!_hasStrokes)
+                      const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.draw_outlined,
+                                size: 52, color: Color(0xFFCCCCCC)),
+                            SizedBox(height: 10),
+                            Text(
+                              'Sign here',
+                              style: TextStyle(
+                                  color: Color(0xFFCCCCCC), fontSize: 18),
+                            ),
+                          ],
                         ),
                       ),
                   ],
@@ -112,40 +139,38 @@ class _SignaturePadState extends State<SignaturePad> {
             ),
           ),
         ),
-      ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            TextButton.icon(
-              onPressed: (widget.readOnly || _isLocked) ? null : () {
-                setState(() {
-                  _points.clear();
-                  _currentLine.clear();
-                });
-              },
-              icon: const Icon(Icons.clear),
-              label: const Text('Clear'),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-            ),
-            if (!_isLocked)
-              TextButton.icon(
-                onPressed: _points.isNotEmpty || _currentLine.isNotEmpty
-                    ? _acceptSignature
-                    : null,
-                icon: const Icon(Icons.check),
-                label: const Text('Accept Signature'),
-                style: TextButton.styleFrom(foregroundColor: Colors.green),
-              )
-            else
-              TextButton.icon(
-                onPressed: () {
-                  setState(() => _isLocked = false);
-                },
-                icon: const Icon(Icons.edit),
-                label: const Text('Edit'),
-                style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _hasStrokes ? _clear : null,
+                icon: const Icon(Icons.clear),
+                label: const Text('Clear'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
               ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: (_hasStrokes && !_isCapturing) ? _accept : null,
+                icon: _isCapturing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.check),
+                label: const Text('Accept Signature'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
           ],
         ),
       ],
@@ -154,10 +179,10 @@ class _SignaturePadState extends State<SignaturePad> {
 }
 
 class _SignaturePainter extends CustomPainter {
-  final List<List<Offset>> points;
-  final List<Offset> currentLine;
+  final Path path;
 
-  _SignaturePainter({required this.points, required this.currentLine});
+  _SignaturePainter({required this.path, required Listenable repaint})
+      : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -167,49 +192,9 @@ class _SignaturePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..style = PaintingStyle.stroke;
-
-    // Draw completed lines using smooth quadratic bezier curves
-    for (final line in points) {
-      _drawSmoothLine(canvas, line, paint);
-    }
-
-    // Draw current line in progress using smooth curves
-    if (currentLine.length >= 2) {
-      _drawSmoothLine(canvas, currentLine, paint);
-    }
-  }
-
-  void _drawSmoothLine(Canvas canvas, List<Offset> points, Paint paint) {
-    if (points.isEmpty) return;
-    if (points.length == 1) {
-      // Single dot
-      canvas.drawCircle(points[0], paint.strokeWidth / 2, paint);
-      return;
-    }
-
-    final path = Path();
-    path.moveTo(points[0].dx, points[0].dy);
-
-    if (points.length == 2) {
-      path.lineTo(points[1].dx, points[1].dy);
-    } else {
-      // Use quadratic bezier curves for smooth lines
-      for (int i = 1; i < points.length - 1; i++) {
-        final p0 = points[i];
-        final p1 = points[i + 1];
-        // Midpoint between current and next point
-        final midX = (p0.dx + p1.dx) / 2;
-        final midY = (p0.dy + p1.dy) / 2;
-        path.quadraticBezierTo(p0.dx, p0.dy, midX, midY);
-      }
-      // Connect to the last point
-      path.lineTo(points.last.dx, points.last.dy);
-    }
-
     canvas.drawPath(path, paint);
   }
 
   @override
-  bool shouldRepaint(covariant _SignaturePainter oldDelegate) =>
-      oldDelegate.points != points || oldDelegate.currentLine != currentLine;
+  bool shouldRepaint(covariant _SignaturePainter oldDelegate) => true;
 }
