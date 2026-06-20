@@ -15,6 +15,10 @@ class PocketBaseClient {
         if (_token != null) 'Authorization': 'Bearer $_token',
       };
 
+  Map<String, String> get _authOnlyHeaders => {
+        if (_token != null) 'Authorization': 'Bearer $_token',
+      };
+
   bool get isAuthenticated => _token != null;
   String? get token => _token;
   String? get userId => _userId;
@@ -80,5 +84,35 @@ class PocketBaseClient {
   Future<http.Response> delete(String endpoint) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     return await http.delete(uri, headers: _headers);
+  }
+
+  /// PATCH request with a file upload (multipart/form-data).
+  /// [fields] are regular text fields, [fileField] is the PocketBase
+  /// file field name, [fileBytes]/[fileName] describe the file itself.
+  Future<http.Response> patchMultipart(
+    String endpoint, {
+    Map<String, String>? fields,
+    required String fileFieldName,
+    required List<int> fileBytes,
+    required String fileName,
+  }) async {
+    final uri = Uri.parse('$baseUrl$endpoint');
+    final request = http.MultipartRequest('PATCH', uri);
+    request.headers.addAll(_authOnlyHeaders);
+
+    if (fields != null) {
+      request.fields.addAll(fields);
+    }
+
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        fileFieldName,
+        fileBytes,
+        filename: fileName,
+      ),
+    );
+
+    final streamedResponse = await request.send();
+    return http.Response.fromStream(streamedResponse);
   }
 }

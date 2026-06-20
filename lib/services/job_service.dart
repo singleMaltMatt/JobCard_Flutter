@@ -208,6 +208,31 @@ class JobService {
     }
   }
 
+  /// Upload a generated job card PDF and attach it to the job record's
+  /// `job_card_pdf` file field via multipart PATCH.
+  Future<bool> uploadJobCardPdf({
+    required String jobId,
+    required List<int> pdfBytes,
+    required String fileName,
+  }) async {
+    try {
+      final response = await _client.patchMultipart(
+        ApiConfig.jobEndpoint(jobId),
+        fileFieldName: 'job_card_pdf',
+        fileBytes: pdfBytes,
+        fileName: fileName,
+      );
+
+      if (response.statusCode == 200) {
+        return true;
+      } else {
+        throw Exception('Upload failed: ${response.statusCode} ${response.body}');
+      }
+    } catch (e) {
+      throw Exception('Failed to upload job card PDF: $e');
+    }
+  }
+
   /// Calculate next occurrence date
   String _nextOccurrence(String currentDate, String interval) {
     final date = DateTime.tryParse(currentDate) ?? DateTime.now();

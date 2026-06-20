@@ -85,9 +85,9 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
           ),
         );
 
-        if (_sendEmail) {
-          _sendCompletionEmail(context);
-        }
+        // Always generate + store the job card PDF, email is a separate
+        // optional step that reuses the same generated PDF bytes.
+        _generateStoreAndMaybeEmail(context);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -99,14 +99,15 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
     }
   }
 
-  void _sendCompletionEmail(BuildContext context) {
-    _generateAndSendEmail().catchError((e) {
-      debugPrint('Email send error: $e');
+  void _generateStoreAndMaybeEmail(BuildContext context) {
+    final jobProvider = context.read<JobProvider>();
+    _generatePdfStoreAndEmail(jobProvider).catchError((e) {
+      debugPrint('PDF/email pipeline error: $e');
     });
   }
 
-  Future<void> _generateAndSendEmail() async {
-    final user = context.read<AuthProvider>().user;
+  Future<void> _generatePdfStoreAndEmail(JobProvider jobProvider) async {
+    final user = context.mounted ? context.read<AuthProvider>().user : null;
     final technicianName = (user?.name?.isNotEmpty == true)
         ? user!.name!
         : (user?.username ?? '');
@@ -125,7 +126,8 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       timeSpent = h > 0 ? '${h}h ${m}m' : '${m}m';
     }
 
-    String? pdfBase64;
+    // Step 1: generate the PDF
+    List<int>? pdfBytes;
     try {
       final pdfResponse = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/pdf/generate-pdf'),
@@ -151,7 +153,7 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
         }),
       );
       if (pdfResponse.statusCode == 200) {
-        pdfBase64 = base64Encode(pdfResponse.bodyBytes);
+        pdfBytes = pdfResponse.bodyBytes;
       } else {
         debugPrint('PDF generation failed: ${pdfResponse.body}');
       }
@@ -159,25 +161,51 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       debugPrint('PDF generation error: $e');
     }
 
-    final emailResponse = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/email/send-email'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'to': widget.job.clientEmail,
-        'subject':
-            'Job Completed - ${widget.job.jobTypeLabel} ${widget.job.jobNumber}',
-        'clientName': widget.job.clientName,
-        'clientAddress': widget.job.clientAddress,
-        'jobDate': widget.job.calendarDate ?? DateTime.now().toIso8601String(),
-        'description': _descriptionController.text.trim(),
-        if (pdfBase64 != null) 'pdfBase64': pdfBase64,
-      }),
-    );
+    if (pdfBytes == null) return;
 
-    if (emailResponse.statusCode == 200) {
-      debugPrint('Email sent successfully');
-    } else {
-      debugPrint('Failed to send email: ${emailResponse.body}');
+    // Step 2: upload PDF to PocketBase, attached to this job record
+    final fileName = '${widget.job.jobNumber.isNotEmpty ? widget.job.jobNumber : widget.job.id}.pdf';
+    try {
+      final uploadSuccess = await jobProvider.uploadJobCardPdf(
+        jobId: widget.job.id,
+        pdfBytes: pdfBytes,
+        fileName: fileName,
+      );
+      if (!uploadSuccess) {
+        debugPrint('Failed to upload job card PDF to PocketBase');
+      }
+    } catch (e) {
+      debugPrint('Job card upload error: $e');
+    }
+
+    // Step 3: email (optional), reusing the same PDF bytes
+    if (_sendEmail) {
+      final pdfBase64 = base64Encode(pdfBytes);
+      try {
+        final emailResponse = await http.post(
+          Uri.parse('${ApiConfig.baseUrl}/email/send-email'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'to': widget.job.clientEmail,
+            'subject':
+                'Job Completed - ${widget.job.jobTypeLabel} ${widget.job.jobNumber}',
+            'clientName': widget.job.clientName,
+            'clientAddress': widget.job.clientAddress,
+            'jobDate':
+                widget.job.calendarDate ?? DateTime.now().toIso8601String(),
+            'description': _descriptionController.text.trim(),
+            'pdfBase64': pdfBase64,
+          }),
+        );
+
+        if (emailResponse.statusCode == 200) {
+          debugPrint('Email sent successfully');
+        } else {
+          debugPrint('Failed to send email: ${emailResponse.body}');
+        }
+      } catch (e) {
+        debugPrint('Email send error: $e');
+      }
     }
   }
 

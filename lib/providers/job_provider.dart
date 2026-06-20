@@ -126,6 +126,26 @@ class JobProvider extends ChangeNotifier {
     }
   }
 
+  /// Upload the generated job card PDF and attach it to the job record.
+  /// Does NOT trigger loadAll() / notifyListeners() since this commonly
+  /// runs as a background task after the dialog has already closed.
+  Future<bool> uploadJobCardPdf({
+    required String jobId,
+    required List<int> pdfBytes,
+    required String fileName,
+  }) async {
+    try {
+      return await _jobService.uploadJobCardPdf(
+        jobId: jobId,
+        pdfBytes: pdfBytes,
+        fileName: fileName,
+      );
+    } catch (e) {
+      debugPrint('uploadJobCardPdf error: $e');
+      return false;
+    }
+  }
+
   /// Reload clients only
   Future<void> loadClients() async {
     try {
