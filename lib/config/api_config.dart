@@ -2,7 +2,7 @@ class ApiConfig {
   // Change this to your PocketBase server URL
   // For local dev: http://10.0.2.2:8090 (Android emulator)
   // For real device: http://YOUR_IP:8090 or your Cloudflare tunnel URL
-  static const String baseUrl = 'https://saying-lessons-copies-forget.trycloudflare.com';
+  static const String baseUrl = 'https://virtually-emma-politics-booking.trycloudflare.com';
 
   // API endpoints
   static const String loginEndpoint = '/api/collections/users/auth-with-password';

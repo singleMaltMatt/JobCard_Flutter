@@ -12,6 +12,7 @@ class JobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isFutureRecurring = _isFutureRecurring();
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: InkWell(
@@ -26,7 +27,9 @@ class JobCard extends StatelessWidget {
                 width: 60,
                 height: 60,
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                  color: isFutureRecurring
+                      ? AppTheme.primaryBlue
+                      : AppTheme.primaryBlue.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
@@ -35,17 +38,21 @@ class JobCard extends StatelessWidget {
                     children: [
                       Text(
                         _getDay(),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: AppTheme.primaryBlue,
+                          color: isFutureRecurring
+                              ? AppTheme.primaryGrey
+                              : AppTheme.primaryBlue,
                         ),
                       ),
                       Text(
                         _getMonth(),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10,
-                          color: AppTheme.primaryBlue,
+                          color: isFutureRecurring
+                              ? AppTheme.primaryGrey
+                              : AppTheme.primaryBlue,
                         ),
                       ),
                     ],
@@ -109,6 +116,16 @@ class JobCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  bool _isFutureRecurring() {
+    if (!job.isRecurring || job.calendarDate == null) return false;
+    final date = DateTime.tryParse(job.calendarDate!);
+    if (date == null) return false;
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final jobDate = DateTime(date.year, date.month, date.day);
+    return jobDate.isAfter(todayDate);
   }
 
   String _getDay() {

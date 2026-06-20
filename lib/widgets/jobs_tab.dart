@@ -20,7 +20,16 @@ class JobsTab extends StatelessWidget {
 
         final pendingAndActiveJobs = jobProvider.jobs
             .where((job) => job.status != 'completed')
-            .toList();
+            .toList()
+          ..sort((a, b) {
+            final dateA = a.calendarDate != null
+                ? DateTime.tryParse(a.calendarDate!) ?? a.createdAt
+                : a.createdAt;
+            final dateB = b.calendarDate != null
+                ? DateTime.tryParse(b.calendarDate!) ?? b.createdAt
+                : b.createdAt;
+            return dateA.compareTo(dateB);
+          });
 
         return RefreshIndicator(
           onRefresh: () => jobProvider.loadAll(),
