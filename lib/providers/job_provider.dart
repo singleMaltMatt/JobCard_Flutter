@@ -14,7 +14,6 @@ class JobProvider extends ChangeNotifier {
   List<Client> _clients = [];
   bool _isLoading = false;
   String? _error;
-  int _selectedTabIndex = 0;
 
   JobProvider(this._jobService, this._clientService);
 
@@ -24,12 +23,6 @@ class JobProvider extends ChangeNotifier {
   List<Client> get clients => _clients;
   bool get isLoading => _isLoading;
   String? get error => _error;
-  int get selectedTabIndex => _selectedTabIndex;
-
-  set selectedTabIndex(int index) {
-    _selectedTabIndex = index;
-    notifyListeners();
-  }
 
   /// Load all job data
   Future<void> loadAll() async {
@@ -49,12 +42,6 @@ class JobProvider extends ChangeNotifier {
       _activeJobs = results[1] as List<Job>;
       _completedJobs = results[2] as List<Job>;
       _clients = results[3] as List<Client>;
-
-      if (_activeJobs.isNotEmpty && _selectedTabIndex == 0) {
-        _selectedTabIndex = 1;
-      } else if (_activeJobs.isEmpty && _selectedTabIndex == 1) {
-        _selectedTabIndex = 0;
-      }
 
       _isLoading = false;
       notifyListeners();

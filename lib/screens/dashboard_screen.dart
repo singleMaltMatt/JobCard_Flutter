@@ -18,37 +18,12 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  late PageController _pageController;
-
-  @override
-  void initState() {
-    super.initState();
-    final jobProvider = context.read<JobProvider>();
-    // Start on Active tab
-    jobProvider.selectedTabIndex = 1;
-    _pageController = PageController(initialPage: 1);
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
+  int _selectedTabIndex = 1;
 
   @override
   Widget build(BuildContext context) {
     return Consumer<JobProvider>(
       builder: (context, jobProvider, _) {
-        // Sync page controller with provider
-        if (_pageController.hasClients &&
-            _pageController.page?.round() != jobProvider.selectedTabIndex) {
-          _pageController.animateToPage(
-            jobProvider.selectedTabIndex,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-          );
-        }
-
         return Scaffold(
           appBar: HeaderBanner(
             onAvatarTap: () {
@@ -62,18 +37,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               }
             },
           ),
-          body: PageView(
-            controller: _pageController,
-            onPageChanged: (index) {
-              jobProvider.selectedTabIndex = index;
-            },
+          body: IndexedStack(
+            index: _selectedTabIndex,
             children: const [
               JobsTab(),
               ActiveJobsTab(),
               CompletedJobsTab(),
             ],
           ),
-          floatingActionButton: jobProvider.selectedTabIndex == 0
+          floatingActionButton: _selectedTabIndex == 0
               ? FloatingActionButton(
                   onPressed: () {
                     Navigator.of(context).push(
@@ -84,9 +56,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 )
               : null,
           bottomNavigationBar: BottomNavigationBar(
-            currentIndex: jobProvider.selectedTabIndex,
+            currentIndex: _selectedTabIndex,
             onTap: (index) {
-              jobProvider.selectedTabIndex = index;
+              setState(() => _selectedTabIndex = index);
             },
             items: const [
               BottomNavigationBarItem(
