@@ -1,0 +1,13 @@
+onRecordCreate((e) => {
+  const existing = $app.findRecordsByFilter(
+    "jobs",
+    "id != ''",
+    "-created",
+    0,
+    0
+  );
+  const count = existing.length + 1;
+  const padded = String(count).padStart(4, "0");
+  e.record.set("job_number", `GS_${padded}`);
+  e.next();
+}, "jobs");

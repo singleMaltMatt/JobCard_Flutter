@@ -1,0 +1,75 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const { Resend } = require('resend');
+
+const resend = new Resend('re_dsxHi6KC_9RQvxs7SRu8ubEh4C958CBwi');
+
+const app = express();
+const PORT = 3002;
+
+app.use(cors());
+app.use(bodyParser.json({ limit: '50mb' }));
+
+app.post('/send-email', async (req, res) => {
+  try {
+    const { to, subject, clientName, clientAddress, jobDate, description, pdfBase64, companyLogo } = req.body;
+
+    const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <div style="background-color: #233143; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+    ${companyLogo
+      ? `<img src="${companyLogo}" alt="Company Logo" style="max-height: 80px; max-width: 260px; object-fit: contain;">`
+      : '<div style="height: 80px;"></div>'}
+      </div>
+      <div style="padding: 20px; border: 1px solid #ddd; border-top: none;">
+      <h2>Job Completed Successfully</h2>
+      <p>Dear ${clientName},</p>
+      <p>We are pleased to inform you that the job has been completed.</p>
+      <div style="background-color: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0;">
+      <p><strong>Client:</strong> ${clientName}</p>
+      <p><strong>Address:</strong> ${clientAddress}</p>
+      <p><strong>Date:</strong> ${jobDate}</p>
+      </div>
+      <p>Please find the job card PDF attached to this email.</p>
+      <p>Thank you for choosing our services.</p>
+      <p style="color: #666; font-size: 12px; margin-top: 30px;">
+      This is an automated email.
+      </p>
+      </div>
+      </div>
+      `;
+
+    const { data, error } = await resend.emails.send({
+      from: 'onboarding@resend.dev',
+      to: [to],
+      subject: subject || 'Job Completed',
+      html: htmlContent,
+      attachments: pdfBase64 ? [
+        {
+          filename: `jobcard-${Date.now()}.pdf`,
+          content: pdfBase64,
+        }
+      ] : [],
+    });
+
+    if (error) {
+      console.error('Resend Error:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.json({ success: true, data });
+
+  } catch (error) {
+    console.error('Email Service Error:', error);
+    res.status(500).json({ error: 'Failed to send email', details: error.message });
+  }
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'email-service' });
+});
+
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`Email service running on port ${PORT}`);
+});
