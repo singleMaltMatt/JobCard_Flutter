@@ -56,19 +56,12 @@ class _SplashScreenState extends State<SplashScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             // Placeholder logo
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                color: AppTheme.white,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: const Icon(
-                Icons.assignment,
-                size: 64,
-                color: AppTheme.primaryBlue,
-              ),
-            ),
+            Image.asset(
+              'assets/images/logo.png',
+                width: 120,
+                height: 120,
+                fit: BoxFit.contain,
+    ),
             const SizedBox(height: 24),
             const Text(
               'JobCard Tracker',
