@@ -193,17 +193,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 16),
 
                   // Toggle login/register
-                  TextButton(
-                    onPressed: () {
-                      setState(() => _isRegistering = !_isRegistering);
-                      context.read<AuthProvider>().clearError();
-                    },
-                    child: Text(
-                      _isRegistering
-                          ? 'Already have an account? Login'
-                          : 'Don\'t have an account? Register',
-                    ),
-                  ),
+                  // TextButton(
+                  //   onPressed: () {
+                  //     setState(() => _isRegistering = !_isRegistering);
+                  //     context.read<AuthProvider>().clearError();
+                  //   },
+                  //   child: Text(
+                  //     _isRegistering
+                  //         ? 'Already have an account? Login'
+                  //         : 'Don\'t have an account? Register',
+                  //   ),
+                  // ),
                 ],
               ),
             ),
