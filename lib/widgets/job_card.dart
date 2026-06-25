@@ -12,7 +12,20 @@ class JobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isFutureRecurring = _isFutureRecurring();
+    final Color dateSquareBg;
+    final Color dateSquareText;
+
+    if (_isFutureRecurring()) {
+      dateSquareBg = AppTheme.primaryBlue;
+      dateSquareText = AppTheme.primaryGrey;
+    } else if (_isMissedNonRecurring()) {
+      dateSquareBg = Colors.red.withValues(alpha: 0.1);
+      dateSquareText = Colors.red[700]!;
+    } else {
+      dateSquareBg = AppTheme.primaryBlue.withValues(alpha: 0.1);
+      dateSquareText = AppTheme.primaryBlue;
+    }
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: InkWell(
@@ -27,9 +40,7 @@ class JobCard extends StatelessWidget {
                 width: 60,
                 height: 60,
                 decoration: BoxDecoration(
-                  color: isFutureRecurring
-                      ? AppTheme.primaryBlue
-                      : AppTheme.primaryBlue.withValues(alpha: 0.1),
+                  color: dateSquareBg,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
@@ -41,18 +52,14 @@ class JobCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: isFutureRecurring
-                              ? AppTheme.primaryGrey
-                              : AppTheme.primaryBlue,
+                          color: dateSquareText,
                         ),
                       ),
                       Text(
                         _getMonth(),
                         style: TextStyle(
                           fontSize: 10,
-                          color: isFutureRecurring
-                              ? AppTheme.primaryGrey
-                              : AppTheme.primaryBlue,
+                          color: dateSquareText,
                         ),
                       ),
                     ],
@@ -116,6 +123,16 @@ class JobCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  bool _isMissedNonRecurring() {
+    if (job.isRecurring || job.calendarDate == null) return false;
+    final date = DateTime.tryParse(job.calendarDate!);
+    if (date == null) return false;
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final jobDate = DateTime(date.year, date.month, date.day);
+    return jobDate.isBefore(todayDate);
   }
 
   bool _isFutureRecurring() {

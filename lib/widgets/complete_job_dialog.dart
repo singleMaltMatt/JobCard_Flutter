@@ -35,6 +35,32 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
     super.dispose();
   }
 
+  Future<bool> _showCloseConfirmation() async {
+    if (_isSubmitting) return false;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Close without completing?'),
+        content: const Text(
+          'The job card has not been generated yet. '
+          'Closing now means no PDF will be created and no email will be sent.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Go Back'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Close Anyway',
+                style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   Future<void> _openSignatureDialog() async {
     final result = await showDialog<String?>(
       context: context,
@@ -211,32 +237,54 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.9,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) {
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldClose = await _showCloseConfirmation();
+        if (shouldClose && context.mounted) Navigator.of(context).pop();
+      },
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.9,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 48),
+                      Expanded(
+                        child: Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        color: AppTheme.primaryGrey,
+                        onPressed: () async {
+                          final shouldClose = await _showCloseConfirmation();
+                          if (shouldClose && context.mounted) Navigator.of(context).pop();
+                        },
+                      ),
+                    ],
                   ),
                 ),
-              ),
               Expanded(
                 child: SingleChildScrollView(
                   controller: scrollController,
@@ -410,7 +458,8 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
           );
         },
       ),
-    );
+    ),
+  );
   }
 }
 
