@@ -147,12 +147,16 @@ class JobService {
     }
   }
 
-  /// Update job status
-  Future<void> updateJobStatus(String jobId, String status) async {
+  /// Update job status.
+  /// [onSiteStartedAt] lets the offline queue replay an accurately-timed
+  /// on_site timestamp instead of using DateTime.now() at flush time.
+  Future<void> updateJobStatus(String jobId, String status,
+      {DateTime? onSiteStartedAt}) async {
     try {
       final body = <String, dynamic>{'status': status};
       if (status == 'on_site') {
-        body['on_site_started_at'] = DateTime.now().toUtc().toIso8601String();
+        body['on_site_started_at'] =
+            (onSiteStartedAt ?? DateTime.now()).toUtc().toIso8601String();
       }
       final response = await _client.patch(ApiConfig.jobEndpoint(jobId), body: body);
 

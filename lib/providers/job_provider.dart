@@ -1,8 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/job.dart';
 import '../models/client.dart';
 import '../services/job_service.dart';
 import '../services/client_service.dart';
+import '../services/offline_queue_service.dart';
+import '../services/connectivity_service.dart';
 
 class JobProvider extends ChangeNotifier {
   final JobService _jobService;
@@ -15,6 +17,11 @@ class JobProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
 
+  // Web-only offline sync state
+  final OfflineQueueService _offlineQueue = OfflineQueueService();
+  int _pendingSyncCount = 0;
+  bool _isSyncing = false;
+
   JobProvider(this._jobService, this._clientService);
 
   List<Job> get jobs => _jobs;
@@ -23,6 +30,8 @@ class JobProvider extends ChangeNotifier {
   List<Client> get clients => _clients;
   bool get isLoading => _isLoading;
   String? get error => _error;
+  int get pendingSyncCount => _pendingSyncCount;
+  bool get isSyncing => _isSyncing;
 
   /// Load all job data
   Future<void> loadAll() async {
@@ -77,17 +86,48 @@ class JobProvider extends ChangeNotifier {
     }
   }
 
-  /// Update job status
+  /// Update job status.
+  /// On web, failed/offline requests are queued in localStorage and replayed
+  /// automatically when connectivity is restored. Android path is unchanged.
   Future<bool> updateJobStatus(String jobId, String status) async {
+    if (kIsWeb && !webIsOnline) {
+      await _queueStatusUpdate(jobId, status);
+      return true;
+    }
     try {
       await _jobService.updateJobStatus(jobId, status);
       await loadAll();
       return true;
     } catch (e) {
+      if (kIsWeb) {
+        await _queueStatusUpdate(jobId, status);
+        return true;
+      }
       _error = e.toString();
       notifyListeners();
       return false;
     }
+  }
+
+  Future<void> _queueStatusUpdate(String jobId, String status) async {
+    await _offlineQueue.enqueue(PendingStatusUpdate(
+      id: '${jobId}_${DateTime.now().millisecondsSinceEpoch}',
+      jobId: jobId,
+      status: status,
+      capturedAt: DateTime.now(),
+    ));
+    _applyStatusLocally(jobId, status);
+    _pendingSyncCount = await _offlineQueue.pendingCount();
+    notifyListeners();
+  }
+
+  void _applyStatusLocally(String jobId, String status) {
+    _jobs = _jobs
+        .map((j) => j.id == jobId ? j.copyWith(status: status) : j)
+        .toList();
+    _activeJobs = _activeJobs
+        .map((j) => j.id == jobId ? j.copyWith(status: status) : j)
+        .toList();
   }
 
   /// Complete a job with description and email
@@ -174,5 +214,51 @@ class JobProvider extends ChangeNotifier {
   void clearError() {
     _error = null;
     notifyListeners();
+  }
+
+  // ── Web-only offline sync ──────────────────────────────────────────────
+
+  /// Replay queued status updates against the server.
+  /// Stops at the first failure so the queue preserves order.
+  Future<void> flushOfflineQueue() async {
+    if (!kIsWeb || _isSyncing) return;
+    final pending = await _offlineQueue.getAll();
+    if (pending.isEmpty) return;
+
+    _isSyncing = true;
+    notifyListeners();
+
+    for (final action in pending) {
+      try {
+        await _jobService.updateJobStatus(
+          action.jobId,
+          action.status,
+          onSiteStartedAt:
+              action.status == 'on_site' ? action.capturedAt : null,
+        );
+        await _offlineQueue.remove(action.id);
+      } catch (_) {
+        break; // still offline — leave remaining items in queue
+      }
+    }
+
+    _pendingSyncCount = await _offlineQueue.pendingCount();
+    _isSyncing = false;
+    await loadAll();
+  }
+
+  /// Call once after login on web. Loads the pending count, wires up the
+  /// online/offline listener, and flushes any queued actions immediately
+  /// if connectivity is available.
+  Future<void> initializeWebSync() async {
+    if (!kIsWeb) return;
+    _pendingSyncCount = await _offlineQueue.pendingCount();
+    notifyListeners();
+
+    listenToConnectivity((online) {
+      if (online) flushOfflineQueue();
+    });
+
+    if (webIsOnline) await flushOfflineQueue();
   }
 }

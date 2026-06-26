@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/constants.dart';
@@ -7,6 +8,8 @@ import '../widgets/header_banner.dart';
 import '../widgets/jobs_tab.dart';
 import '../widgets/active_jobs_tab.dart';
 import '../widgets/completed_jobs_tab.dart';
+import '../widgets/sync_status_banner.dart';
+import '../widgets/pwa_install_dialog.dart';
 import 'login_screen.dart';
 import 'create_job_screen.dart';
 
@@ -19,6 +22,21 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int _selectedTabIndex = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        context.read<JobProvider>().initializeWebSync();
+        // Slight delay so the screen is fully rendered before the dialog
+        await Future.delayed(const Duration(seconds: 2));
+        if (!mounted) return;
+        await PwaInstallDialog.show(context);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,12 +55,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
               }
             },
           ),
-          body: IndexedStack(
-            index: _selectedTabIndex,
-            children: const [
-              JobsTab(),
-              ActiveJobsTab(),
-              CompletedJobsTab(),
+          body: Column(
+            children: [
+              const SyncStatusBanner(),
+              Expanded(
+                child: IndexedStack(
+                  index: _selectedTabIndex,
+                  children: const [
+                    JobsTab(),
+                    ActiveJobsTab(),
+                    CompletedJobsTab(),
+                  ],
+                ),
+              ),
             ],
           ),
           floatingActionButton: _selectedTabIndex == 0

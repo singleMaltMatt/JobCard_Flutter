@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'app.dart';
@@ -11,7 +12,8 @@ import 'providers/job_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  TimerNotificationService.init();
+  // TimerNotificationService uses native APIs not available on web.
+  if (!kIsWeb) TimerNotificationService.init();
 
   // Initialize services
   final pocketBaseClient = PocketBaseClient();
