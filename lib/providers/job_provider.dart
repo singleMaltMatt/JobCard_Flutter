@@ -96,6 +96,7 @@ class JobProvider extends ChangeNotifier {
     required String description,
     required bool emailSent,
     Job? originalJob,
+    DateTime? onSiteStartedAt,
   }) async {
     try {
       await _jobService.completeJob(
@@ -103,6 +104,7 @@ class JobProvider extends ChangeNotifier {
         description: description,
         emailSent: emailSent,
         originalJob: originalJob,
+        onSiteStartedAt: onSiteStartedAt,
       );
       await loadAll();
       return true;

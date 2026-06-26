@@ -170,16 +170,21 @@ class JobService {
     required String description,
     required bool emailSent,
     Job? originalJob,
+    DateTime? onSiteStartedAt,
   }) async {
     try {
+      final body = <String, dynamic>{
+        'status': 'completed',
+        'description': description,
+        'email_sent': emailSent,
+        'on_site_ended_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      if (onSiteStartedAt != null) {
+        body['on_site_started_at'] = onSiteStartedAt.toUtc().toIso8601String();
+      }
       final response = await _client.patch(
         ApiConfig.jobEndpoint(jobId),
-        body: {
-          'status': 'completed',
-          'description': description,
-          'email_sent': emailSent,
-          'on_site_ended_at': DateTime.now().toUtc().toIso8601String(),
-        },
+        body: body,
       );
 
       if (response.statusCode != 200) {

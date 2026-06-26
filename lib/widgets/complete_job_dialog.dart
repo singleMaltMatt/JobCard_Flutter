@@ -27,6 +27,7 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
   bool _isSubmitting = false;
   String? _capturedSignature;
   DateTime? _departedTime;
+  DateTime? _manualArrivedTime;
 
   @override
   void dispose() {
@@ -86,6 +87,202 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       return;
     }
 
+    // Lock in the departed time now so confirmation and PDF use the same value.
+    _departedTime ??= DateTime.now();
+
+    // If no on-site arrival was ever recorded, ask the technician to enter it.
+    if (widget.job.onSiteStartedAt == null && _manualArrivedTime == null) {
+      final arrivedTime = await _showArrivedTimeDialog();
+      if (!mounted || arrivedTime == null) return;
+      setState(() => _manualArrivedTime = arrivedTime);
+    }
+
+    // Show summary for final review before committing.
+    final confirmed = await _showConfirmationSummary();
+    if (!mounted || confirmed != true) return;
+
+    await _executeCompletion();
+  }
+
+  Future<DateTime?> _showArrivedTimeDialog() async {
+    final shouldProceed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.timer_off_outlined, color: Colors.orange, size: 36),
+        title: const Text('Arrival Time Missing'),
+        content: const Text(
+          'You didn\'t record your arrival time on site.\n\n'
+          'Please enter the time you arrived so it can be included on the job card.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Enter Time'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldProceed != true || !mounted) return null;
+
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      helpText: 'SELECT ARRIVAL TIME',
+    );
+
+    if (picked == null) return null;
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day, picked.hour, picked.minute);
+  }
+
+  Future<bool?> _showConfirmationSummary() async {
+    final arrivedTime =
+        (widget.job.onSiteStartedAt ?? _manualArrivedTime)?.toLocal();
+    final departedTime = _departedTime ?? DateTime.now();
+    final timeFmt = DateFormat('HH:mm');
+
+    String timeSpent = '';
+    if (arrivedTime != null) {
+      final diff = departedTime.difference(arrivedTime);
+      final h = diff.inHours;
+      final m = diff.inMinutes % 60;
+      timeSpent = h > 0 ? '${h}h ${m}m' : '${m}m';
+    }
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm & Complete'),
+        contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.job.clientName,
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              Text(
+                '${widget.job.jobTypeLabel} · ${widget.job.jobNumber}',
+                style: const TextStyle(
+                    color: AppTheme.primaryBlue,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500),
+              ),
+              const Divider(height: 24),
+              const Text('Site Times',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              _summaryRow(Icons.login_outlined, 'Arrived',
+                  arrivedTime != null ? timeFmt.format(arrivedTime) : '--:--'),
+              _summaryRow(Icons.logout_outlined, 'Departed',
+                  timeFmt.format(departedTime)),
+              if (timeSpent.isNotEmpty)
+                _summaryRow(Icons.timer_outlined, 'Time Spent', timeSpent,
+                    highlight: true),
+              const Divider(height: 24),
+              const Text('Work Description',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              Text(
+                _descriptionController.text.trim(),
+                style: const TextStyle(fontSize: 13, color: AppTheme.darkGrey),
+              ),
+              const Divider(height: 24),
+              _optionRow(
+                Icons.draw_outlined,
+                'Signature',
+                _capturedSignature != null ? 'Captured' : 'Not captured',
+                _capturedSignature != null,
+              ),
+              _optionRow(
+                Icons.email_outlined,
+                'Email',
+                _sendEmail
+                    ? 'Will be sent to ${widget.job.clientName}'
+                    : 'Not sending',
+                _sendEmail,
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Go Back'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Confirm & Complete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryRow(IconData icon, String label, String value,
+      {bool highlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: AppTheme.primaryGrey),
+          const SizedBox(width: 8),
+          Text('$label: ',
+              style: const TextStyle(
+                  fontSize: 13, color: AppTheme.primaryGrey)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight:
+                  highlight ? FontWeight.bold : FontWeight.normal,
+              color: highlight ? Colors.purple : AppTheme.darkGrey,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _optionRow(
+      IconData icon, String label, String value, bool active) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 16,
+              color:
+                  active ? AppTheme.primaryBlue : AppTheme.primaryGrey),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$label: $value',
+              style: TextStyle(
+                fontSize: 13,
+                color:
+                    active ? AppTheme.primaryBlue : AppTheme.primaryGrey,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _executeCompletion() async {
     setState(() => _isSubmitting = true);
 
     final jobProvider = context.read<JobProvider>();
@@ -94,6 +291,7 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       description: _descriptionController.text.trim(),
       emailSent: _sendEmail,
       originalJob: widget.job,
+      onSiteStartedAt: _manualArrivedTime,
     );
 
     if (mounted) {
@@ -101,7 +299,6 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
 
       if (success) {
         Navigator.of(context).pop();
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(widget.job.isRecurring
@@ -110,14 +307,12 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
             backgroundColor: Colors.green,
           ),
         );
-
-        // Always generate + store the job card PDF, email is a separate
-        // optional step that reuses the same generated PDF bytes.
         _generateStoreAndMaybeEmail(context);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed: ${jobProvider.error ?? "Unknown error"}'),
+            content: Text(
+                'Failed: ${jobProvider.error ?? "Unknown error"}'),
             backgroundColor: Colors.red,
           ),
         );
@@ -139,7 +334,7 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
         : (user?.username ?? '');
 
     final now = _departedTime ?? DateTime.now();
-    final arrived = widget.job.onSiteStartedAt?.toLocal();
+    final arrived = (widget.job.onSiteStartedAt ?? _manualArrivedTime)?.toLocal();
     final departed = now.toLocal();
     final timeFmt = DateFormat('HH:mm');
     final dateFmt = DateFormat('d MMM yyyy HH:mm');
