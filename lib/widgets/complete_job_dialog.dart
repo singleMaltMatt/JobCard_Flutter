@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../config/api_config.dart';
@@ -8,6 +7,7 @@ import '../config/theme.dart';
 import '../models/job.dart';
 import '../providers/auth_provider.dart';
 import '../providers/job_provider.dart';
+import '../services/pdf_pipeline_service.dart';
 import 'signature_pad.dart';
 
 class CompleteJobDialog extends StatefulWidget {
@@ -347,66 +347,32 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       timeSpent = h > 0 ? '${h}h ${m}m' : '${m}m';
     }
 
-    // Step 1: generate the PDF
-    List<int>? pdfBytes;
-    try {
-      final pdfResponse = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/pdf/generate-pdf'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'clientName': widget.job.clientName,
-          'clientAddress': widget.job.clientAddress,
-          'jobNumber': widget.job.jobNumber,
-          'jobType': widget.job.jobTypeLabel,
-          'appointmentDetails': widget.job.calendarDate != null
-              ? DateFormat('d MMM yyyy')
-                  .format(DateTime.parse(widget.job.calendarDate!))
-              : '',
-          'arrivedTime': arrived != null ? timeFmt.format(arrived) : '',
-          'departedTime': timeFmt.format(departed),
-          'timeSpent': timeSpent,
-          'description': _descriptionController.text.trim(),
-          'signatureName': _signatureNameController.text.trim(),
-          'signature': _capturedSignature,
-          'technicianName': technicianName,
-          'completedDate': dateFmt.format(departed),
-          'companyLogo': '${ApiConfig.baseUrl}/static/logo.png',
-        }),
-      );
-      if (pdfResponse.statusCode == 200) {
-        pdfBytes = pdfResponse.bodyBytes;
-      } else {
-        debugPrint('PDF generation failed: ${pdfResponse.body}');
-      }
-    } catch (e) {
-      debugPrint('PDF generation error: $e');
-    }
+    // Build payloads before any await — widget state is safe here.
+    final fileName =
+        '${widget.job.jobNumber.isNotEmpty ? widget.job.jobNumber : widget.job.id}.pdf';
 
-    if (pdfBytes == null) return;
+    final pdfPayload = <String, dynamic>{
+      'clientName': widget.job.clientName,
+      'clientAddress': widget.job.clientAddress,
+      'jobNumber': widget.job.jobNumber,
+      'jobType': widget.job.jobTypeLabel,
+      'appointmentDetails': widget.job.calendarDate != null
+          ? DateFormat('d MMM yyyy')
+              .format(DateTime.parse(widget.job.calendarDate!))
+          : '',
+      'arrivedTime': arrived != null ? timeFmt.format(arrived) : '',
+      'departedTime': timeFmt.format(departed),
+      'timeSpent': timeSpent,
+      'description': _descriptionController.text.trim(),
+      'signatureName': _signatureNameController.text.trim(),
+      'signature': _capturedSignature,
+      'technicianName': technicianName,
+      'completedDate': dateFmt.format(departed),
+      'companyLogo': '${ApiConfig.baseUrl}/static/logo.png',
+    };
 
-    // Step 2: upload PDF to PocketBase, attached to this job record
-    final fileName = '${widget.job.jobNumber.isNotEmpty ? widget.job.jobNumber : widget.job.id}.pdf';
-    try {
-      final uploadSuccess = await jobProvider.uploadJobCardPdf(
-        jobId: widget.job.id,
-        pdfBytes: pdfBytes,
-        fileName: fileName,
-      );
-      if (!uploadSuccess) {
-        debugPrint('Failed to upload job card PDF to PocketBase');
-      }
-    } catch (e) {
-      debugPrint('Job card upload error: $e');
-    }
-
-    // Step 3: email (optional), reusing the same PDF bytes
-    if (_sendEmail) {
-      final pdfBase64 = base64Encode(pdfBytes);
-      try {
-        final emailResponse = await http.post(
-          Uri.parse('${ApiConfig.baseUrl}/email/send-email'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
+    final Map<String, dynamic>? emailPayload = _sendEmail
+        ? {
             'to': widget.job.clientEmail,
             'subject':
                 'Job Completed - ${widget.job.jobTypeLabel} ${widget.job.jobNumber}',
@@ -415,17 +381,51 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
             'jobDate':
                 widget.job.calendarDate ?? DateTime.now().toIso8601String(),
             'description': _descriptionController.text.trim(),
-            'pdfBase64': pdfBase64,
-          }),
-        );
+          }
+        : null;
 
-        if (emailResponse.statusCode == 200) {
-          debugPrint('Email sent successfully');
-        } else {
-          debugPrint('Failed to send email: ${emailResponse.body}');
-        }
-      } catch (e) {
-        debugPrint('Email send error: $e');
+    // Step 1: generate the PDF
+    final pdfBytes = await PdfPipelineService.generatePdf(pdfPayload);
+    if (pdfBytes == null) {
+      await jobProvider.queuePdfJob(
+        jobId: widget.job.id,
+        fileName: fileName,
+        pdfPayload: pdfPayload,
+        sendEmail: _sendEmail,
+        emailPayload: emailPayload,
+      );
+      return;
+    }
+
+    // Step 2: upload PDF to PocketBase, attached to this job record
+    final uploaded = await jobProvider.uploadJobCardPdf(
+      jobId: widget.job.id,
+      pdfBytes: pdfBytes,
+      fileName: fileName,
+    );
+    if (!uploaded) {
+      await jobProvider.queuePdfJob(
+        jobId: widget.job.id,
+        fileName: fileName,
+        pdfPayload: pdfPayload,
+        sendEmail: _sendEmail,
+        emailPayload: emailPayload,
+      );
+      return;
+    }
+
+    // Step 3: email (optional) — queue on failure so the client still gets it
+    if (_sendEmail && emailPayload != null) {
+      final sent =
+          await PdfPipelineService.sendEmail(emailPayload, pdfBytes);
+      if (!sent) {
+        await jobProvider.queuePdfJob(
+          jobId: widget.job.id,
+          fileName: fileName,
+          pdfPayload: pdfPayload,
+          sendEmail: true,
+          emailPayload: emailPayload,
+        );
       }
     }
   }

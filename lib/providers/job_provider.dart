@@ -5,6 +5,8 @@ import '../services/job_service.dart';
 import '../services/client_service.dart';
 import '../services/offline_queue_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/pdf_queue_service.dart';
+import '../services/pdf_pipeline_service.dart';
 
 class JobProvider extends ChangeNotifier {
   final JobService _jobService;
@@ -22,6 +24,11 @@ class JobProvider extends ChangeNotifier {
   int _pendingSyncCount = 0;
   bool _isSyncing = false;
 
+  // PDF/email retry queue — all platforms
+  final PdfQueueService _pdfQueue = PdfQueueService();
+  int _pendingPdfCount = 0;
+  bool _isFlushingPdf = false;
+
   JobProvider(this._jobService, this._clientService);
 
   List<Job> get jobs => _jobs;
@@ -32,6 +39,7 @@ class JobProvider extends ChangeNotifier {
   String? get error => _error;
   int get pendingSyncCount => _pendingSyncCount;
   bool get isSyncing => _isSyncing;
+  int get pendingPdfCount => _pendingPdfCount;
 
   /// Load all job data
   Future<void> loadAll() async {
@@ -52,8 +60,13 @@ class JobProvider extends ChangeNotifier {
       _completedJobs = results[2] as List<Job>;
       _clients = results[3] as List<Client>;
 
+      // Load pending PDF count so the banner shows immediately.
+      _pendingPdfCount = await _pdfQueue.pendingCount();
       _isLoading = false;
       notifyListeners();
+
+      // Attempt to flush any queued PDF jobs in the background.
+      _tryFlushPdfQueue();
     } catch (e) {
       _error = e.toString();
       _isLoading = false;
@@ -260,5 +273,58 @@ class JobProvider extends ChangeNotifier {
     });
 
     if (webIsOnline) await flushOfflineQueue();
+  }
+
+  // ── PDF/email retry queue (all platforms) ────────────────────────────────
+
+  /// Store a failed PDF+email job so it can be retried on next [loadAll].
+  Future<void> queuePdfJob({
+    required String jobId,
+    required String fileName,
+    required Map<String, dynamic> pdfPayload,
+    required bool sendEmail,
+    Map<String, dynamic>? emailPayload,
+  }) async {
+    await _pdfQueue.enqueue(PendingPdfJob(
+      id: '${jobId}_${DateTime.now().millisecondsSinceEpoch}',
+      jobId: jobId,
+      fileName: fileName,
+      pdfPayload: pdfPayload,
+      sendEmail: sendEmail,
+      emailPayload: emailPayload,
+    ));
+    _pendingPdfCount = await _pdfQueue.pendingCount();
+    notifyListeners();
+  }
+
+  /// Attempt to generate, upload, and email any queued PDF jobs.
+  /// Called automatically at the end of [loadAll]. Skips if already running.
+  Future<void> _tryFlushPdfQueue() async {
+    if (_isFlushingPdf) return;
+    _isFlushingPdf = true;
+
+    final pending = await _pdfQueue.getAll();
+    for (final job in pending) {
+      final pdfBytes = await PdfPipelineService.generatePdf(job.pdfPayload);
+      if (pdfBytes == null) break; // still offline — leave queue intact
+
+      final uploaded = await uploadJobCardPdf(
+        jobId: job.jobId,
+        pdfBytes: pdfBytes,
+        fileName: job.fileName,
+      );
+      if (!uploaded) break; // still offline
+
+      if (job.sendEmail && job.emailPayload != null) {
+        // Email is best-effort — don't stop the queue on failure.
+        await PdfPipelineService.sendEmail(job.emailPayload!, pdfBytes);
+      }
+
+      await _pdfQueue.remove(job.id);
+    }
+
+    _pendingPdfCount = await _pdfQueue.pendingCount();
+    _isFlushingPdf = false;
+    notifyListeners();
   }
 }
