@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import '../models/job.dart';
+import '../providers/auth_provider.dart';
 import '../providers/job_provider.dart';
 import 'job_card.dart';
 
@@ -53,18 +55,130 @@ class CompletedJobsTab extends StatelessWidget {
             itemCount: jobProvider.completedJobs.length,
             itemBuilder: (context, index) {
               final job = jobProvider.completedJobs[index];
-              return JobCard(job: job, onTap: () {
-                showModalBottomSheet(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (context) => _CompletedJobDetail(job: job),
-                );
-              });
+              return JobCard(
+                job: job,
+                onTap: () {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => _CompletedJobDetail(job: job),
+                  );
+                },
+                onLongPress: () => _showResendEmailSheet(context, job, jobProvider),
+              );
             },
           ),
         );
       },
+    );
+  }
+}
+
+void _showResendEmailSheet(
+    BuildContext context, Job job, JobProvider jobProvider) {
+  final hasPdf = job.jobCardPdfName?.isNotEmpty == true;
+  final authProvider = context.read<AuthProvider>();
+  final techName = authProvider.user?.name ??
+      authProvider.user?.username ??
+      'Technician';
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            job.clientName,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            hasPdf
+                ? 'PDF exists — resend the job card email.'
+                : 'No PDF on file — it will be regenerated before sending.',
+            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              icon: const Icon(Icons.send),
+              label: Text(hasPdf ? 'Send Email Again' : 'Regenerate & Send Email'),
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                await _doResend(context, job, jobProvider, techName);
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Future<void> _doResend(
+    BuildContext context, Job job, JobProvider jobProvider, String techName) async {
+  // Show a non-dismissible loading overlay.
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(
+      child: Card(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Sending email…'),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  final sent = await jobProvider.resendJobEmail(job: job, technicianName: techName);
+
+  if (context.mounted) Navigator.of(context).pop(); // dismiss loading dialog
+
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(sent
+            ? 'Email sent to ${job.clientEmail}'
+            : 'Failed to send email. Please try again.'),
+        backgroundColor: sent ? Colors.green : Colors.red,
+      ),
     );
   }
 }
@@ -109,7 +223,7 @@ class _TimeRow extends StatelessWidget {
 }
 
 class _CompletedJobDetail extends StatelessWidget {
-  final job;
+  final Job job;
   const _CompletedJobDetail({required this.job});
 
   @override

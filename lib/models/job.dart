@@ -1,3 +1,11 @@
+/// Extract the first non-empty string from a PocketBase file field.
+/// File fields return a plain String (single) or List (multi); empty = null.
+String? _pbFile(dynamic value) {
+  if (value is String && value.isNotEmpty) return value;
+  if (value is List && value.isNotEmpty) return value.first as String?;
+  return null;
+}
+
 class Job {
   final String id;
   final String clientId;
@@ -18,6 +26,9 @@ class Job {
   final String jobNumber;
   final bool isRecurring;
   final String? recurrenceInterval;
+  /// Raw filename returned by PocketBase for the job_card_pdf file field.
+  /// Null/empty means no PDF has been uploaded yet.
+  final String? jobCardPdfName;
 
   Job({
     required this.id,
@@ -39,6 +50,7 @@ class Job {
     this.jobNumber = '',
     this.isRecurring = false,
     this.recurrenceInterval,
+    this.jobCardPdfName,
   });
 
   factory Job.fromJson(Map<String, dynamic> json) {
@@ -61,7 +73,7 @@ class Job {
       userId: json['user'] ?? '',
       status: json['status'] ?? 'pending',
       description: json['description'],
-      signatureUrl: json['signature'],
+      signatureUrl: _pbFile(json['signature']),
       emailSent: json['email_sent'] ?? false,
       createdAt: DateTime.tryParse(json['created'] ?? '') ?? DateTime.now(),
       updatedAt: DateTime.tryParse(json['updated'] ?? '') ?? DateTime.now(),
@@ -72,6 +84,7 @@ class Job {
       jobNumber: json['job_number'] ?? '',
       isRecurring: json['is_recurring'] ?? false,
       recurrenceInterval: json['recurrence_interval'],
+      jobCardPdfName: _pbFile(json['job_card_pdf']),
     );
   }
 
@@ -123,6 +136,7 @@ class Job {
     String? jobNumber,
     bool? isRecurring,
     String? recurrenceInterval,
+    String? jobCardPdfName,
   }) {
     return Job(
       id: id ?? this.id,
@@ -144,6 +158,7 @@ class Job {
       jobNumber: jobNumber ?? this.jobNumber,
       isRecurring: isRecurring ?? this.isRecurring,
       recurrenceInterval: recurrenceInterval ?? this.recurrenceInterval,
+      jobCardPdfName: jobCardPdfName ?? this.jobCardPdfName,
     );
   }
 }

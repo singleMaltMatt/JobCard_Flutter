@@ -202,6 +202,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                       const Center(child: CircularProgressIndicator())
                     else
                       DropdownButtonFormField<String>(
+                        isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Select Client *',
                           prefixIcon: Icon(Icons.business),
@@ -210,7 +211,10 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                         items: jobProvider.clients.map((client) {
                           return DropdownMenuItem(
                             value: client.id,
-                            child: Text(client.name),
+                            child: Text(
+                              client.name,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           );
                         }).toList(),
                         onChanged: (v) => setState(() => _selectedClientId = v),

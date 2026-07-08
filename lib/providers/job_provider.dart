@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
+import '../config/api_config.dart';
 import '../models/job.dart';
 import '../models/client.dart';
 import '../services/job_service.dart';
@@ -316,8 +319,8 @@ class JobProvider extends ChangeNotifier {
       if (!uploaded) break; // still offline
 
       if (job.sendEmail && job.emailPayload != null) {
-        // Email is best-effort — don't stop the queue on failure.
-        await PdfPipelineService.sendEmail(job.emailPayload!, pdfBytes);
+        final sent = await PdfPipelineService.sendEmail(job.emailPayload!, pdfBytes);
+        if (!sent) break; // email server down — keep in queue, retry next time
       }
 
       await _pdfQueue.remove(job.id);
@@ -326,5 +329,111 @@ class JobProvider extends ChangeNotifier {
     _pendingPdfCount = await _pdfQueue.pendingCount();
     _isFlushingPdf = false;
     notifyListeners();
+  }
+
+  // ── Signature upload ──────────────────────────────────────────────────────
+
+  Future<bool> uploadSignature({
+    required String jobId,
+    required List<int> pngBytes,
+    required String fileName,
+  }) async {
+    try {
+      return await _jobService.uploadSignature(
+        jobId: jobId,
+        pngBytes: pngBytes,
+        fileName: fileName,
+      );
+    } catch (e) {
+      debugPrint('uploadSignature error: $e');
+      return false;
+    }
+  }
+
+  // ── Resend job card email ─────────────────────────────────────────────────
+
+  /// Re-send the job card email for a completed job.
+  /// If the PDF already exists on PocketBase it is downloaded and reused.
+  /// Otherwise it is regenerated from the stored job data and signature.
+  /// Returns true if the email was dispatched successfully.
+  Future<bool> resendJobEmail({
+    required Job job,
+    required String technicianName,
+  }) async {
+    List<int>? pdfBytes;
+
+    // ── Try to reuse the existing PDF ────────────────────────────────────
+    if (job.jobCardPdfName?.isNotEmpty == true) {
+      final path = '/api/files/jobs/${job.id}/${job.jobCardPdfName}';
+      pdfBytes = await _jobService.downloadFileBytes(path);
+    }
+
+    // ── Regenerate if no PDF was found ───────────────────────────────────
+    if (pdfBytes == null) {
+      String? signatureBase64;
+      if (job.signatureUrl?.isNotEmpty == true) {
+        final path = '/api/files/jobs/${job.id}/${job.signatureUrl}';
+        final bytes = await _jobService.downloadFileBytes(path);
+        if (bytes != null) {
+          signatureBase64 = 'data:image/png;base64,${base64Encode(bytes)}';
+        }
+      }
+
+      final pdfPayload = _buildPdfPayload(job, technicianName, signatureBase64);
+      pdfBytes = await PdfPipelineService.generatePdf(pdfPayload);
+
+      if (pdfBytes != null) {
+        final fileName = '${job.jobNumber.isNotEmpty ? job.jobNumber : job.id}.pdf';
+        await uploadJobCardPdf(jobId: job.id, pdfBytes: pdfBytes, fileName: fileName);
+      }
+    }
+
+    if (pdfBytes == null) return false;
+
+    final emailPayload = {
+      'to': job.clientEmail,
+      'subject': 'Job Completed - ${job.jobTypeLabel} ${job.jobNumber}',
+      'clientName': job.clientName,
+      'clientAddress': job.clientAddress,
+      'jobDate': job.calendarDate ?? job.createdAt.toIso8601String(),
+      'description': job.description ?? '',
+    };
+
+    return PdfPipelineService.sendEmail(emailPayload, pdfBytes);
+  }
+
+  Map<String, dynamic> _buildPdfPayload(
+      Job job, String technicianName, String? signatureBase64) {
+    final arrived = job.onSiteStartedAt?.toLocal();
+    final departed = job.onSiteEndedAt?.toLocal() ?? DateTime.now().toLocal();
+    final timeFmt = DateFormat('HH:mm');
+    final dateFmt = DateFormat('d MMM yyyy HH:mm');
+
+    String timeSpent = '';
+    if (arrived != null) {
+      final diff = departed.difference(arrived);
+      final h = diff.inHours;
+      final m = diff.inMinutes % 60;
+      timeSpent = h > 0 ? '${h}h ${m}m' : '${m}m';
+    }
+
+    return {
+      'clientName': job.clientName,
+      'clientAddress': job.clientAddress,
+      'jobNumber': job.jobNumber,
+      'jobType': job.jobTypeLabel,
+      'appointmentDetails': job.calendarDate != null
+          ? DateFormat('d MMM yyyy').format(DateTime.parse(job.calendarDate!))
+          : '',
+      'arrivedTime': arrived != null ? timeFmt.format(arrived) : '',
+      'departedTime': timeFmt.format(departed),
+      'timeSpent': timeSpent,
+      'description': job.description ?? '',
+      'signatureName': job.clientName,
+      'signature': signatureBase64 ?? '',
+      'technicianName': technicianName,
+      'completedDate': dateFmt.format(departed),
+      'companyLogo': '${ApiConfig.baseUrl}/static/logo.png',
+    };
   }
 }

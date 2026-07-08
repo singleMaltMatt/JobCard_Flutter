@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import '../config/api_config.dart';
 import '../models/job.dart';
 import 'pocketbase_client.dart';
@@ -215,6 +216,38 @@ class JobService {
     } catch (e) {
       throw Exception('Failed to complete job: $e');
     }
+  }
+
+  /// Upload the captured signature PNG and attach it to the `signature` field.
+  Future<bool> uploadSignature({
+    required String jobId,
+    required List<int> pngBytes,
+    required String fileName,
+  }) async {
+    try {
+      final response = await _client.patchMultipart(
+        ApiConfig.jobEndpoint(jobId),
+        fileFieldName: 'signature',
+        fileBytes: pngBytes,
+        fileName: fileName,
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('uploadSignature error: $e');
+      return false;
+    }
+  }
+
+  /// Download raw bytes from a PocketBase file URL path (e.g. /api/files/…).
+  Future<List<int>?> downloadFileBytes(String filePath) async {
+    try {
+      final response = await _client.get(filePath);
+      if (response.statusCode == 200) return response.bodyBytes;
+      debugPrint('downloadFileBytes failed: ${response.statusCode}');
+    } catch (e) {
+      debugPrint('downloadFileBytes error: $e');
+    }
+    return null;
   }
 
   /// Upload a generated job card PDF and attach it to the job record's

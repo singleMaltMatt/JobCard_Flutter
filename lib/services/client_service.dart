@@ -8,21 +8,37 @@ class ClientService {
 
   ClientService(this._client);
 
-  /// Get all clients
+  /// Get all clients, fetching every page until exhausted.
   Future<List<Client>> getClients() async {
     try {
-      final response = await _client.get(
-        ApiConfig.clientsEndpoint,
-        queryParams: {'sort': 'name'},
-      );
+      final all = <Client>[];
+      int page = 1;
+      const perPage = 200;
 
-      if (response.statusCode == 200) {
+      while (true) {
+        final response = await _client.get(
+          ApiConfig.clientsEndpoint,
+          queryParams: {
+            'sort': 'name',
+            'page': '$page',
+            'perPage': '$perPage',
+          },
+        );
+
+        if (response.statusCode != 200) {
+          throw Exception('Failed to load clients');
+        }
+
         final data = jsonDecode(response.body);
         final items = data['items'] as List<dynamic>;
-        return items.map((item) => Client.fromJson(item as Map<String, dynamic>)).toList();
-      } else {
-        throw Exception('Failed to load clients');
+        all.addAll(items.map((item) => Client.fromJson(item as Map<String, dynamic>)));
+
+        final totalPages = (data['totalPages'] as int? ?? 1);
+        if (page >= totalPages) break;
+        page++;
       }
+
+      return all;
     } catch (e) {
       throw Exception('Failed to load clients: $e');
     }

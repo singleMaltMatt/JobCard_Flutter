@@ -88,6 +88,16 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       return;
     }
 
+    if (_getSignature && _capturedSignature == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please capture the customer\'s signature before completing'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     // Lock in the departed time now so confirmation and PDF use the same value.
     _departedTime ??= DateTime.now();
 
@@ -352,6 +362,11 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
     final fileName =
         '${widget.job.jobNumber.isNotEmpty ? widget.job.jobNumber : widget.job.id}.pdf';
 
+    // Extract signature PNG bytes now so we can upload them after the PDF.
+    final List<int>? signaturePngBytes = (_capturedSignature != null)
+        ? base64Decode(_capturedSignature!.split(',').last)
+        : null;
+
     final pdfPayload = <String, dynamic>{
       'clientName': widget.job.clientName,
       'clientAddress': widget.job.clientAddress,
@@ -413,6 +428,16 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
         emailPayload: emailPayload,
       );
       return;
+    }
+
+    // Step 2b: upload signature to PocketBase for future PDF regeneration.
+    // Best-effort — failure doesn't block the email.
+    if (signaturePngBytes != null) {
+      await jobProvider.uploadSignature(
+        jobId: widget.job.id,
+        pngBytes: signaturePngBytes,
+        fileName: '${widget.job.id}_sig.png',
+      );
     }
 
     // Step 3: email (optional) — queue on failure so the client still gets it

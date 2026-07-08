@@ -7,8 +7,9 @@ import '../models/job.dart';
 class JobCard extends StatelessWidget {
   final Job job;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
-  const JobCard({super.key, required this.job, this.onTap});
+  const JobCard({super.key, required this.job, this.onTap, this.onLongPress});
 
   @override
   Widget build(BuildContext context) {
@@ -30,6 +31,7 @@ class JobCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
