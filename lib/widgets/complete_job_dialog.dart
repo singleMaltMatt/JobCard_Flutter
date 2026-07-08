@@ -41,20 +41,21 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Close without completing?'),
+        title: const Text('Cancel completion?'),
         content: const Text(
-          'The job card has not been generated yet. '
-          'Closing now means no PDF will be created and no email will be sent.',
+          'The job will stay active and your timer will keep running. '
+          'You can come back and complete it later.\n\n'
+          'Any details already entered here will be lost.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Go Back'),
+            child: const Text('Keep Filling In'),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Close Anyway',
-                style: TextStyle(color: Colors.red)),
+            child: const Text('Cancel Completion',
+                style: TextStyle(color: Colors.orange)),
           ),
         ],
       ),
@@ -641,6 +642,26 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                             backgroundColor: Colors.green,
                             padding:
                                 const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton.icon(
+                          onPressed: _isSubmitting
+                              ? null
+                              : () async {
+                                  final cancel =
+                                      await _showCloseConfirmation();
+                                  if (cancel && context.mounted) {
+                                    Navigator.of(context).pop();
+                                  }
+                                },
+                          icon: const Icon(Icons.timer_outlined, size: 18),
+                          label: const Text('Cancel Completion — Timer Keeps Running'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.orange[800],
                           ),
                         ),
                       ),

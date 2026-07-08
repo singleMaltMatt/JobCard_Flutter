@@ -148,13 +148,12 @@ class JobsTab extends StatelessWidget {
                   WorkflowDropdown(
                     currentStatus: job.status,
                     onChanged: (newStatus) {
-                      context.read<JobProvider>().updateJobStatus(
-                        job.id,
-                        newStatus,
-                      );
-                      Navigator.of(context).pop();
-                      // If moving to completed, show CompleteJobDialog
                       if (newStatus == 'completed') {
+                        // Don't set status here — CompleteJobDialog owns the
+                        // full transition (status + description + times + PDF).
+                        // Setting it early means a cancel leaves the job stuck
+                        // as completed with no description recorded.
+                        Navigator.of(context).pop();
                         showModalBottomSheet(
                           context: context,
                           isScrollControlled: true,
@@ -163,6 +162,12 @@ class JobsTab extends StatelessWidget {
                           backgroundColor: Colors.transparent,
                           builder: (ctx) => CompleteJobDialog(job: job),
                         );
+                      } else {
+                        context.read<JobProvider>().updateJobStatus(
+                          job.id,
+                          newStatus,
+                        );
+                        Navigator.of(context).pop();
                       }
                     },
                   ),
@@ -178,6 +183,8 @@ class JobsTab extends StatelessWidget {
                           showModalBottomSheet(
                             context: context,
                             isScrollControlled: true,
+                            isDismissible: false,
+                            enableDrag: false,
                             backgroundColor: Colors.transparent,
                             builder: (ctx) => CompleteJobDialog(job: job),
                           );

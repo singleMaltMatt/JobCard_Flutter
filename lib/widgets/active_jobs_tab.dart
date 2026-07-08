@@ -239,17 +239,22 @@ class _ActiveJobCardState extends State<_ActiveJobCard> {
             WorkflowDropdown(
               currentStatus: widget.job.status,
               onChanged: (newStatus) {
-                context.read<JobProvider>().updateJobStatus(
-                      widget.job.id,
-                      newStatus,
-                    );
-
                 if (newStatus == 'completed') {
+                  // Don't pre-update status — CompleteJobDialog owns the full
+                  // transition. Setting it early means a cancel leaves the job
+                  // stuck as completed with no description recorded.
                   showModalBottomSheet(
                     context: context,
                     isScrollControlled: true,
+                    isDismissible: false,
+                    enableDrag: false,
                     backgroundColor: Colors.transparent,
                     builder: (ctx) => CompleteJobDialog(job: widget.job),
+                  );
+                } else {
+                  context.read<JobProvider>().updateJobStatus(
+                    widget.job.id,
+                    newStatus,
                   );
                 }
               },
