@@ -259,9 +259,60 @@ class _ActiveJobCardState extends State<_ActiveJobCard> {
                 }
               },
             ),
+
+            const SizedBox(height: 12),
+
+            // Cancel job — sends the job back to the Jobs pool (pending) so it
+            // can be picked up again on a later scheduled visit (e.g. arrived
+            // on site but no one was there to let the technician in).
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.cancel_outlined, size: 18),
+                label: const Text('Cancel Job'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  side: const BorderSide(color: Colors.red),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: _confirmCancelJob,
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _confirmCancelJob() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel Job'),
+        content: Text(
+          'Send this job for ${widget.job.clientName ?? 'this client'} back to '
+          'the jobs pool? It will return to pending so it can be picked up on a '
+          'later visit.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep Job'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Cancel Job', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Stop any running on-site timer before the card leaves the active list.
+    _stopTimer();
+
+    if (!mounted) return;
+    await context.read<JobProvider>().updateJobStatus(widget.job.id, 'pending');
   }
 }
