@@ -23,6 +23,16 @@ class PocketBaseClient {
   String? get token => _token;
   String? get userId => _userId;
 
+  /// Invoked whenever any request comes back 401 Unauthorized, meaning the
+  /// session token is missing or has expired server-side. Wired up once in
+  /// main() to force a logout and redirect to the login screen.
+  void Function()? onUnauthorized;
+
+  http.Response _checkAuth(http.Response response) {
+    if (response.statusCode == 401) onUnauthorized?.call();
+    return response;
+  }
+
   void setAuth(String token, String userId) {
     _token = token;
     _userId = userId;
@@ -65,25 +75,25 @@ class PocketBaseClient {
   /// GET request to PocketBase
   Future<http.Response> get(String endpoint, {Map<String, String>? queryParams}) async {
     final uri = Uri.parse('$baseUrl$endpoint').replace(queryParameters: queryParams);
-    return await http.get(uri, headers: _headers);
+    return _checkAuth(await http.get(uri, headers: _headers));
   }
 
   /// POST request to PocketBase
   Future<http.Response> post(String endpoint, {Map<String, dynamic>? body}) async {
     final uri = Uri.parse('$baseUrl$endpoint');
-    return await http.post(uri, headers: _headers, body: body != null ? jsonEncode(body) : null);
+    return _checkAuth(await http.post(uri, headers: _headers, body: body != null ? jsonEncode(body) : null));
   }
 
   /// PATCH request to PocketBase
   Future<http.Response> patch(String endpoint, {Map<String, dynamic>? body}) async {
     final uri = Uri.parse('$baseUrl$endpoint');
-    return await http.patch(uri, headers: _headers, body: body != null ? jsonEncode(body) : null);
+    return _checkAuth(await http.patch(uri, headers: _headers, body: body != null ? jsonEncode(body) : null));
   }
 
   /// DELETE request to PocketBase
   Future<http.Response> delete(String endpoint) async {
     final uri = Uri.parse('$baseUrl$endpoint');
-    return await http.delete(uri, headers: _headers);
+    return _checkAuth(await http.delete(uri, headers: _headers));
   }
 
   /// PATCH request with a file upload (multipart/form-data).
@@ -113,6 +123,6 @@ class PocketBaseClient {
     );
 
     final streamedResponse = await request.send();
-    return http.Response.fromStream(streamedResponse);
+    return _checkAuth(await http.Response.fromStream(streamedResponse));
   }
 }

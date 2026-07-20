@@ -63,6 +63,15 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Logout triggered by an expired/invalid session (a 401 from the
+  /// server), as opposed to the user tapping "Logout" themselves.
+  void forceLogout() {
+    _authService.logout();
+    _user = null;
+    _error = 'Your session has expired. Please log in again.';
+    notifyListeners();
+  }
+
   /// Try restoring a saved session from storage (call on app start)
   Future<bool> tryRestoreAuth() async {
     final user = await _authService.tryRestoreAuth();

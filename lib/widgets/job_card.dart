@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../config/theme.dart';
@@ -119,7 +120,14 @@ class JobCard extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: AppTheme.primaryGrey),
+              if (kIsWeb && onLongPress != null)
+                IconButton(
+                  icon: const Icon(Icons.more_vert, color: AppTheme.primaryGrey),
+                  tooltip: 'More options',
+                  onPressed: onLongPress,
+                )
+              else
+                const Icon(Icons.chevron_right, color: AppTheme.primaryGrey),
             ],
           ),
         ),
