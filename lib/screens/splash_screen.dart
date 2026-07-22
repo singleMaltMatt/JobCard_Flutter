@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../app.dart';
 import '../config/theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/job_provider.dart';
+import '../services/version_service.dart';
+import '../widgets/update_available_dialog.dart';
 import 'login_screen.dart';
 import 'dashboard_screen.dart';
 
@@ -45,6 +48,20 @@ class _SplashScreenState extends State<SplashScreen> {
         MaterialPageRoute(builder: (_) => const LoginScreen()),
       );
     }
+
+    // After landing on the first real screen, prompt for an APK update if the
+    // server reports a newer version (Android only; no-op elsewhere).
+    _promptUpdateIfAvailable();
+  }
+
+  Future<void> _promptUpdateIfAvailable() async {
+    final update = await VersionService.checkForUpdate();
+    if (update == null) return;
+    // Use the root navigator's context — this SplashScreen has already been
+    // replaced, so the dialog belongs to the Dashboard/Login screen.
+    final navState = navigatorKey.currentState;
+    if (navState == null || !navState.mounted) return;
+    await UpdateAvailableDialog.show(navState.context, update);
   }
 
   @override

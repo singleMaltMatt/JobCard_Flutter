@@ -1,0 +1,6 @@
+{
+  "latest_version": "1.2.0",
+  "apk_url": "https://jobtracking.globalsense.co.za/download/job_tracker_1_2_0.apk",
+  "release_notes": "Cancel-job button, session-expiry redirect, resend-email on web, and this new auto-update check.",
+  "force_update": false
+}

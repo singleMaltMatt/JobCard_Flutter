@@ -1,7 +1,7 @@
 name: jobcard_tracker
 description: Job Card Tracker Application
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.2.0+2
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -17,6 +17,8 @@ dependencies:
   shared_preferences: ^2.3.2
   flutter_foreground_task: ^8.14.0
   web: ^1.0.0
+  package_info_plus: ^8.0.0
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:
