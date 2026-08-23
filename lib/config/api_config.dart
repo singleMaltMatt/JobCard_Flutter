@@ -14,4 +14,12 @@ class ApiConfig {
   static String jobEndpoint(String id) => '/api/collections/jobs/records/$id';
   static String clientEndpoint(String id) => '/api/collections/clients/records/$id';
   static String userEndpoint(String id) => '/api/collections/users/records/$id';
+
+  // Sales portal
+  static const String superuserLoginEndpoint = '/api/collections/_superusers/auth-with-password';
+  static const String suppliersEndpoint = '/api/collections/suppliers/records';
+  static const String salesOrdersEndpoint = '/api/collections/sales_orders/records';
+
+  static String supplierEndpoint(String id) => '/api/collections/suppliers/records/$id';
+  static String salesOrderEndpoint(String id) => '/api/collections/sales_orders/records/$id';
 }
