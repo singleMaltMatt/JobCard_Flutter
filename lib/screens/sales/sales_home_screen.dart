@@ -7,6 +7,7 @@ import '../../models/week_job.dart';
 import '../../providers/sales_auth_provider.dart';
 import '../../providers/sales_provider.dart';
 import 'sales_login_screen.dart';
+import 'sales_order_form_screen.dart';
 
 class SalesHomeScreen extends StatefulWidget {
   const SalesHomeScreen({super.key});
@@ -55,11 +56,14 @@ class _SalesHomeScreenState extends State<SalesHomeScreen> {
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(Icons.add),
         label: const Text('New Order'),
-        onPressed: () {
-          // Replaced by the create form in step 3c.
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Create order coming in step 3c')),
+        onPressed: () async {
+          final changed = await Navigator.of(context).push<bool>(
+            MaterialPageRoute(
+                builder: (_) => const SalesOrderFormScreen()),
           );
+          if (changed == true && context.mounted) {
+            context.read<SalesProvider>().loadWeek();
+          }
         },
       ),
       body: Column(
@@ -356,8 +360,15 @@ class _OrderCard extends StatelessWidget {
           ],
         ),
         trailing: _StatusChip(status: order.status),
-        // Detail/edit view arrives with the create form in step 3c.
-        onTap: null,
+        onTap: () async {
+          final changed = await Navigator.of(context).push<bool>(
+            MaterialPageRoute(
+                builder: (_) => SalesOrderFormScreen(order: order)),
+          );
+          if (changed == true && context.mounted) {
+            context.read<SalesProvider>().loadWeek();
+          }
+        },
       ),
     );
   }
