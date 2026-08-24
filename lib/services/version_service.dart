@@ -28,7 +28,9 @@ class AppUpdateInfo {
 class VersionService {
   /// Endpoint holding the latest version metadata. Served with no-cache
   /// headers by nginx so this always reflects the newest release.
-  static String get versionUrl => '${ApiConfig.baseUrl}/version.json';
+  /// NOTE: lives under /download/ alongside the APK — the bare /version.json
+  /// path hits nginx's catch-all 404.
+  static String get versionUrl => '${ApiConfig.baseUrl}/download/version.json';
 
   /// Returns update details if a newer APK is available, otherwise null.
   /// Never throws — any network/parse failure resolves to null so a launch
