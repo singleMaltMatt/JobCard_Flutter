@@ -17,7 +17,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _identityController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
-  bool _isRegistering = false;
+  final bool _isRegistering = false;
   final _emailController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 

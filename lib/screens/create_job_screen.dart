@@ -207,7 +207,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                           labelText: 'Select Client *',
                           prefixIcon: Icon(Icons.business),
                         ),
-                        value: _selectedClientId,
+                        initialValue: _selectedClientId,
                         items: jobProvider.clients.map((client) {
                           return DropdownMenuItem(
                             value: client.id,
@@ -231,7 +231,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                       labelText: 'Job Type *',
                       prefixIcon: Icon(Icons.work_outline),
                     ),
-                    value: _selectedJobType,
+                    initialValue: _selectedJobType,
                     items: _jobTypes.map((type) {
                       return DropdownMenuItem(
                         value: type['value'],
@@ -265,7 +265,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                         const Text('Automatically reschedule after completion'),
                     value: _isRecurring,
                     onChanged: (v) => setState(() => _isRecurring = v),
-                    activeColor: Theme.of(context).primaryColor,
+                    activeThumbColor: Theme.of(context).primaryColor,
                     contentPadding: EdgeInsets.zero,
                   ),
 
@@ -276,7 +276,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
                         labelText: 'Repeat Every',
                         prefixIcon: Icon(Icons.repeat),
                       ),
-                      value: _recurrenceInterval,
+                      initialValue: _recurrenceInterval,
                       items: _intervals.map((interval) {
                         return DropdownMenuItem(
                           value: interval['value'],
