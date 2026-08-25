@@ -68,7 +68,9 @@ Replaces the sales user printing delivery notes / collection invoices by hand.
 - Job completion flow (complete_job_dialog.dart): PDF generated once → uploaded to PocketBase job_card_pdf via multipart PATCH → same bytes emailed if checked. Recurring jobs spawn next occurrence on completion.
 - Other subsystems present in the repo: offline queue (`offline_queue_service`), PDF pipeline/queue (`pdf_pipeline_service`, `pdf_queue_service`), connectivity detection (web/stub split), foreground-task timer notifications, PWA install prompt.
 - **In-app update checker — BUILT** (contrary to older notes): `lib/services/version_service.dart` + `lib/widgets/update_available_dialog.dart`, invoked from `splash_screen.dart` `_promptUpdateIfAvailable()` after landing on the first real screen. Android-only (no-op on web/iOS), reads `version.json`, compares dotted versions ignoring `+build`, supports `force_update` (non-dismissible dialog, blocks back button), opens the APK URL via `url_launcher` in the external browser.
-  - ⚠️ **Check**: `VersionService.versionUrl` is `${baseUrl}/version.json`, but version.json is served under `/download/`. If nginx has no `/version.json` location, the check 404s and — because `checkForUpdate()` swallows all errors and returns null — fails **silently and indistinguishably from "up to date."** Verify with `curl -k -I https://127.0.0.1/version.json`.
+  - ⚠️ **FIXED 24 Aug 2026**: `versionUrl` was `${baseUrl}/version.json`, which hits nginx's catch-all 404 — version.json lives under `/download/`. Because `checkForUpdate()` swallows all errors and returns null, the prompt failed **silently and indistinguishably from "up to date"** and had never fired for anyone. Now points at `/download/version.json`.
+  - **Consequence**: every tech on 1.2.0 has the broken URL baked into their APK and will never be prompted. The next APK must be distributed manually (send them the `/download/` link); auto-prompting works from then on.
+  - To test the prompt, temporarily raise `latest_version` in version.json above the installed version.
   - **Release process**: bump `version:` in pubspec.yaml, build APK, publish APK + updated version.json to `/download/`, so techs get prompted on next launch. Current version: **1.2.0+2**.
 - Web app: `flutter build web --release --base-href /app/` → /var/www/jobcard. iOS users use it as PWA (service worker caching means updates lag on iOS).
 - **file_picker pinned to ^11.x** — v10.3.9+ removed `FilePicker.platform` (use `FilePicker.pickFiles(...)` directly), and **v12 changes the return type again** to `List<PlatformFile>` instead of `FilePickerResult?`. Don't jump majors casually.
@@ -109,12 +111,34 @@ sqlite3 ~/pocketbase_data/data.db "PRAGMA integrity_check;"
 ```
 After npm module errors on Node services: `cd ~/<service> && npm install && sudo systemctl restart <service>`.
 
+## Deployment
+
+**Web builds** (both output to `build/web`, so the sales build overwrites the app build and vice versa — copy to the server immediately after building, never assume `build/web` holds what you expect):
+
+```bash
+flutter build web --release --base-href /app/                           # main app -> /var/www/jobcard
+flutter build web --release --base-href /sales/ -t lib/main_sales.dart   # sales    -> /var/www/jobcard-sales
+```
+
+**Getting the build to the server:**
+- **At the office**: `ssh globaladmin@10.0.9.40`, then scp/rsync the build across.
+- **From home**: SSH to the server does NOT work over the VPN. Workaround: zip `build/web`, upload to Google Drive, download + extract on the server, copy into place.
+
+nginx has no explicit `user` directive — it runs as the Arch default (`http`).
+
+**nginx blocks** (in `/etc/nginx/sites-enabled/jobcard_tracker.conf`):
+```nginx
+location /app/   { alias /var/www/jobcard/;       try_files $uri $uri/ /app/index.html; }
+location /sales/ { alias /var/www/jobcard-sales/; try_files $uri $uri/ /sales/index.html; }
+```
+Verify with `sudo nginx -t && sudo systemctl reload nginx` then `curl -k -I https://127.0.0.1/sales/`.
+
 ## Outstanding TODOs
 1. **Sales step 4** — app side: surface sales orders on the Active Jobs tab for the assigned tech, detail sheet, signature capture, call `/pdf/generate-sales-pdf`, upload to `generated_pdf`, optional email.
-2. **Sales step 5** — deploy: nginx `/sales/` alias block → /var/www/jobcard-sales, build, test on the real domain.
-3. Verify/fix `VersionService.versionUrl` path (see warning above).
+2. Investigate reported issue with the resend-email-on-web feature.
+3. Push the next APK manually — see the update-checker note above.
 4. Enable PocketBase S3 backups once PetaSAN is stable (need endpoint/bucket/keys).
-5. Resend-email button in app for completed jobs (currently server-script only).
+5. ~~Resend-email button in app for completed jobs~~ — **done on web** (shipped in 1.2.0); see TODO 2 re: reported issue.
 6. **Timestamp guard in updateJobStatus** (only set on_site_started_at if null) — still outstanding; a tech re-selecting `on_site` on a finished job corrupts durations (GS Richards Bay incident).
 7. Fix corrupted GS Richards Bay job record timestamps manually if not done.
 8. Outlook desktop email rendering (table-based HTML) — deferred.

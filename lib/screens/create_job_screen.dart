@@ -29,6 +29,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
     {'value': 'site_visit', 'label': 'Site Visit'},
     {'value': 'maintenance', 'label': 'Maintenance'},
     {'value': 'call_out', 'label': 'Call Out'},
+    {'value': 'cctv_access_control', 'label': 'CCTV / Access Control'},
   ];
 
   static const _intervals = [

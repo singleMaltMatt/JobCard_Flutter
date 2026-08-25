@@ -357,6 +357,22 @@ class _OrderCard extends StatelessWidget {
                   color: AppTheme.primaryGrey,
                 ),
               ),
+            if (order.relatedJobId != null)
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.link, size: 13, color: AppTheme.primaryBlue),
+                    SizedBox(width: 4),
+                    Text(
+                      'Merged into job card on completion',
+                      style: TextStyle(
+                          fontSize: 12, color: AppTheme.primaryBlue),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
         trailing: _StatusChip(status: order.status),

@@ -84,6 +84,44 @@ class SalesOrderService {
     }
   }
 
+  /// Candidate jobs a delivery can be attached to: same client, not yet
+  /// completed, scheduled within +/- [windowDays] of the delivery date.
+  /// A completed job can no longer merge in a delivery note, so those are
+  /// excluded.
+  Future<List<WeekJob>> getAttachableJobs({
+    required String clientId,
+    required DateTime aroundDate,
+    int windowDays = 3,
+  }) async {
+    final start = _dateOnly(aroundDate.subtract(Duration(days: windowDays)));
+    final end = _dateOnly(aroundDate.add(Duration(days: windowDays + 1)));
+
+    try {
+      final response = await _client.get(
+        ApiConfig.jobsEndpoint,
+        queryParams: {
+          'filter':
+              '(client = "$clientId" && status != "completed" && calendar_date >= "$start" && calendar_date < "$end")',
+          'sort': 'calendar_date,job_number',
+          'expand': 'client,user',
+          'perPage': '200',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load jobs for client');
+      }
+
+      final data = jsonDecode(response.body);
+      final items = data['items'] as List<dynamic>;
+      return items
+          .map((item) => WeekJob.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      throw Exception('Failed to load jobs for client: $e');
+    }
+  }
+
   /// Create a sales order. The order_number is set server-side by the
   /// pb_hooks numbering script. Empty-string relation values are how
   /// PocketBase clears/omits a single relation.
@@ -96,6 +134,7 @@ class SalesOrderService {
     required String reference,
     required String description,
     required String status,
+    String relatedJobId = '',
   }) async {
     try {
       final response = await _client.post(
@@ -109,6 +148,7 @@ class SalesOrderService {
           'reference': reference,
           'description': description,
           'status': status,
+          'related_job': relatedJobId,
         },
       );
 
@@ -134,6 +174,7 @@ class SalesOrderService {
     required String reference,
     required String description,
     required String status,
+    String relatedJobId = '',
   }) async {
     try {
       final response = await _client.patch(
@@ -147,6 +188,7 @@ class SalesOrderService {
           'reference': reference,
           'description': description,
           'status': status,
+          'related_job': relatedJobId,
         },
       );
 

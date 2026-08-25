@@ -7,6 +7,7 @@ import '../../models/client.dart';
 import '../../models/sales_order.dart';
 import '../../models/supplier.dart';
 import '../../models/user.dart';
+import '../../models/week_job.dart';
 import '../../services/client_service.dart';
 import '../../services/pocketbase_client.dart';
 import '../../services/sales_order_service.dart';
@@ -44,6 +45,13 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
   String? _techId;
   DateTime? _scheduledDate;
 
+  // Attach-to-job (deliveries only). When set, the delivery note is merged
+  // into that job's job card at completion instead of being emailed on its
+  // own at signing time.
+  String? _relatedJobId;
+  List<WeekJob> _attachableJobs = [];
+  bool _loadingJobs = false;
+
   PlatformFile? _pickedPdf;
   bool _saving = false;
 
@@ -65,6 +73,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
           : (order.clientId.isEmpty ? null : order.clientId);
       _techId = order.assignedToId.isEmpty ? null : order.assignedToId;
       _scheduledDate = order.scheduledDay;
+      _relatedJobId = order.relatedJobId;
       _referenceController.text = order.reference;
       _descriptionController.text = order.description;
     }
@@ -96,11 +105,51 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
         _techs = results[2] as List<AppUser>;
         _loadingLists = false;
       });
+      await _refreshAttachableJobs();
     } catch (e) {
       setState(() {
         _listError = e.toString();
         _loadingLists = false;
       });
+    }
+  }
+
+  /// Reload the attachable-job list whenever client or date changes.
+  /// Only meaningful for deliveries with both a client and a date set.
+  Future<void> _refreshAttachableJobs() async {
+    if (_type != 'delivery' || _partyId == null || _scheduledDate == null) {
+      if (mounted) {
+        setState(() {
+          _attachableJobs = [];
+          _relatedJobId = null;
+        });
+      }
+      return;
+    }
+
+    setState(() => _loadingJobs = true);
+    try {
+      final jobs = await _orderService.getAttachableJobs(
+        clientId: _partyId!,
+        aroundDate: _scheduledDate!,
+      );
+      if (!mounted) return;
+      setState(() {
+        _attachableJobs = jobs;
+        // Drop a stale selection if that job is no longer a candidate.
+        if (_relatedJobId != null &&
+            !jobs.any((j) => j.id == _relatedJobId)) {
+          _relatedJobId = null;
+        }
+        _loadingJobs = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _attachableJobs = [];
+          _loadingJobs = false;
+        });
+      }
     }
   }
 
@@ -114,6 +163,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
     );
     if (picked != null) {
       setState(() => _scheduledDate = picked);
+      await _refreshAttachableJobs();
     }
   }
 
@@ -185,6 +235,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
           reference: _referenceController.text.trim(),
           description: _descriptionController.text.trim(),
           status: status,
+          relatedJobId: _type == 'delivery' ? (_relatedJobId ?? '') : '',
         );
       } else {
         final created = await _orderService.createOrder(
@@ -196,6 +247,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
           reference: _referenceController.text.trim(),
           description: _descriptionController.text.trim(),
           status: status,
+          relatedJobId: _type == 'delivery' ? (_relatedJobId ?? '') : '',
         );
         orderId = created.id;
       }
@@ -283,6 +335,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
                             _type = v;
                             _partyId = null; // party list source changed
                           });
+                          _refreshAttachableJobs();
                         },
                 ),
                 const SizedBox(height: 16),
@@ -305,8 +358,12 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
                           .map((c) => DropdownMenuItem(
                               value: c.id, child: Text(c.name)))
                           .toList(),
-                  onChanged:
-                      _saving ? null : (v) => setState(() => _partyId = v),
+                  onChanged: _saving
+                      ? null
+                      : (v) {
+                          setState(() => _partyId = v);
+                          _refreshAttachableJobs();
+                        },
                 ),
                 if (isCollection)
                   Align(
@@ -362,11 +419,74 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
                         icon: const Icon(Icons.clear),
                         onPressed: _saving
                             ? null
-                            : () => setState(() => _scheduledDate = null),
+                            : () {
+                                setState(() => _scheduledDate = null);
+                                _refreshAttachableJobs();
+                              },
                       ),
                   ],
                 ),
                 const SizedBox(height: 16),
+
+                // Attach to an existing job (deliveries only). When attached,
+                // the tech still signs the delivery separately in the app;
+                // the signed note is merged into the job card at completion
+                // rather than emailed on its own.
+                if (_type == 'delivery') ...[
+                  if (_loadingJobs)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: LinearProgressIndicator(minHeight: 2),
+                    )
+                  else if (_partyId == null || _scheduledDate == null)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Pick a client and date to attach this delivery to a scheduled job.',
+                        style: TextStyle(
+                            fontSize: 12, color: AppTheme.primaryGrey),
+                      ),
+                    )
+                  else if (_attachableJobs.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'No open jobs for this client around that date \u2014 this will be a standalone delivery.',
+                        style: TextStyle(
+                            fontSize: 12, color: AppTheme.primaryGrey),
+                      ),
+                    )
+                  else
+                    DropdownButtonFormField<String?>(
+                      key: ValueKey('job-$_partyId-$_scheduledDate'),
+                      initialValue: _relatedJobId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Attach to job (optional)',
+                        helperText:
+                            'Attached: merged into the job card. Standalone: emailed on signing.',
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('Standalone delivery'),
+                        ),
+                        ..._attachableJobs.map((j) => DropdownMenuItem<String?>(
+                              value: j.id,
+                              child: Text(
+                                '${j.jobNumber} \u00b7 ${j.jobTypeLabel}'
+                                '${j.techName.isEmpty ? '' : ' \u00b7 ${j.techName}'}'
+                                '${j.calendarDate == null ? '' : ' \u00b7 ${j.calendarDate}'}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            )),
+                      ],
+                      onChanged: _saving
+                          ? null
+                          : (v) => setState(() => _relatedJobId = v),
+                    ),
+                  const SizedBox(height: 16),
+                ],
 
                 // Reference
                 TextFormField(

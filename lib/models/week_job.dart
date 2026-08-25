@@ -55,6 +55,8 @@ class WeekJob {
         return 'Maintenance';
       case 'call_out':
         return 'Call Out';
+      case 'cctv_access_control':
+        return 'CCTV / Access Control';
       case 'site_visit':
       default:
         return 'Site Visit';
