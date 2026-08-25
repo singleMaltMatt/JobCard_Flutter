@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/sales_order.dart';
 import '../models/user.dart';
@@ -81,6 +82,116 @@ class SalesOrderService {
           .toList();
     } catch (e) {
       throw Exception('Failed to load technicians: $e');
+    }
+  }
+
+  /// Open sales orders assigned to [userId] that are due: scheduled today
+  /// or earlier (so a missed Tuesday collection still shows on Thursday),
+  /// and not yet completed. Unscheduled orders are excluded — those are
+  /// still being planned in the portal.
+  Future<List<SalesOrder>> getMyDueOrders(String userId) async {
+    final today = _dateOnly(DateTime.now());
+
+    try {
+      final response = await _client.get(
+        ApiConfig.salesOrdersEndpoint,
+        queryParams: {
+          'filter':
+              '(assigned_to = "$userId" && status != "completed" && scheduled_date != "" && scheduled_date < "$today 23:59:59")',
+          'sort': 'scheduled_date,order_number',
+          'expand': 'client,supplier,assigned_to',
+          'perPage': '200',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load sales orders');
+      }
+
+      final data = jsonDecode(response.body);
+      final items = data['items'] as List<dynamic>;
+      return items
+          .map((item) => SalesOrder.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      throw Exception('Failed to load sales orders: $e');
+    }
+  }
+
+  /// Download the SAGE PDF attached to an order, as raw bytes.
+  /// Returns null when there is no attachment or the fetch fails.
+  Future<List<int>?> fetchAttachedPdf(SalesOrder order) async {
+    final name = order.attachedPdfName;
+    if (name == null) return null;
+    try {
+      final response = await http.get(Uri.parse(
+          ApiConfig.fileUrl('sales_orders', order.id, name)));
+      if (response.statusCode == 200) return response.bodyBytes;
+    } catch (_) {
+      // fall through
+    }
+    return null;
+  }
+
+  /// Mark an order signed and completed. Status is the technician's to set
+  /// here — the portal never moves an order out of completed.
+  Future<bool> markCompleted({
+    required String orderId,
+    required String signatureName,
+    required DateTime signedAt,
+    bool emailSent = false,
+  }) async {
+    try {
+      final response = await _client.patch(
+        ApiConfig.salesOrderEndpoint(orderId),
+        body: {
+          'status': 'completed',
+          'signature_name': signatureName,
+          'signed_at': signedAt.toUtc().toIso8601String(),
+          'email_sent': emailSent,
+        },
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Upload the merged (cover + SAGE) PDF to generated_pdf.
+  Future<bool> uploadGeneratedPdf({
+    required String orderId,
+    required List<int> pdfBytes,
+    required String fileName,
+  }) async {
+    try {
+      final response = await _client.patchMultipart(
+        ApiConfig.salesOrderEndpoint(orderId),
+        fileFieldName: 'generated_pdf',
+        fileBytes: pdfBytes,
+        fileName: fileName,
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Upload the raw signature PNG so the note can be regenerated later.
+  Future<bool> uploadSignature({
+    required String orderId,
+    required List<int> pngBytes,
+    required String fileName,
+  }) async {
+    try {
+      final response = await _client.patchMultipart(
+        ApiConfig.salesOrderEndpoint(orderId),
+        fileFieldName: 'signature',
+        fileBytes: pngBytes,
+        fileName: fileName,
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
     }
   }
 

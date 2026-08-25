@@ -22,4 +22,8 @@ class ApiConfig {
 
   static String supplierEndpoint(String id) => '/api/collections/suppliers/records/$id';
   static String salesOrderEndpoint(String id) => '/api/collections/sales_orders/records/$id';
+
+  /// Public URL for a PocketBase file field value.
+  static String fileUrl(String collection, String recordId, String fileName) =>
+      '$baseUrl/api/files/$collection/$recordId/$fileName';
 }

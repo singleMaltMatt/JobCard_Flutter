@@ -3,26 +3,58 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../config/theme.dart';
+import '../models/sales_order.dart';
+import '../providers/auth_provider.dart';
 import '../providers/job_provider.dart';
+import '../providers/tech_sales_provider.dart';
 import '../services/timer_notification_service.dart';
 import 'workflow_dropdown.dart';
 import 'complete_job_dialog.dart';
+import 'sales_order_sheet.dart';
 
-class ActiveJobsTab extends StatelessWidget {
+class ActiveJobsTab extends StatefulWidget {
   const ActiveJobsTab({super.key});
 
   @override
+  State<ActiveJobsTab> createState() => _ActiveJobsTabState();
+}
+
+class _ActiveJobsTabState extends State<ActiveJobsTab> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadSalesOrders());
+  }
+
+  void _loadSalesOrders() {
+    if (!mounted) return;
+    final userId = context.read<AuthProvider>().user?.id ?? '';
+    if (userId.isNotEmpty) {
+      context.read<TechSalesProvider>().load(userId);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Consumer<JobProvider>(
-      builder: (context, jobProvider, _) {
+    return Consumer2<JobProvider, TechSalesProvider>(
+      builder: (context, jobProvider, salesProvider, _) {
         // Only show full-screen spinner on the very first load (list still empty)
-        if (jobProvider.isLoading && jobProvider.activeJobs.isEmpty) {
+        if (jobProvider.isLoading &&
+            jobProvider.activeJobs.isEmpty &&
+            !salesProvider.hasOrders) {
           return const Center(child: CircularProgressIndicator());
         }
 
+        final salesOrders = salesProvider.orders;
+        final hasNothing =
+            jobProvider.activeJobs.isEmpty && salesOrders.isEmpty;
+
         return RefreshIndicator(
-          onRefresh: () => jobProvider.loadAll(),
-          child: jobProvider.activeJobs.isEmpty
+          onRefresh: () async {
+            _loadSalesOrders();
+            await jobProvider.loadAll();
+          },
+          child: hasNothing
               ? CustomScrollView(
                   slivers: [
                     SliverFillRemaining(
@@ -43,17 +75,166 @@ class ActiveJobsTab extends StatelessWidget {
                     ),
                   ],
                 )
-              : ListView.builder(
+              : ListView(
                   padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: jobProvider.activeJobs.length,
-                  itemBuilder: (context, index) {
-                    final job = jobProvider.activeJobs[index];
-                    // ValueKey preserves timer state across list rebuilds
-                    return _ActiveJobCard(key: ValueKey(job.id), job: job);
-                  },
+                  children: [
+                    // Deliveries & collections due today or overdue. Signing
+                    // one of these never touches job status or the timer.
+                    if (salesOrders.isNotEmpty) ...[
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(20, 8, 20, 4),
+                        child: Text(
+                          'Deliveries & Collections',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryGrey,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                      ...salesOrders.map(
+                        (o) => _SalesOrderCard(key: ValueKey(o.id), order: o),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(20, 12, 20, 4),
+                        child: Text(
+                          'Active Jobs',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryGrey,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (jobProvider.activeJobs.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                        child: Text(
+                          'No active jobs right now',
+                          style: TextStyle(
+                              fontSize: 14, color: Colors.grey[600]),
+                        ),
+                      ),
+                    ...jobProvider.activeJobs.map(
+                      // ValueKey preserves timer state across list rebuilds
+                      (job) => _ActiveJobCard(key: ValueKey(job.id), job: job),
+                    ),
+                  ],
                 ),
         );
       },
+    );
+  }
+}
+
+/// Compact card for a delivery/collection assigned to this technician.
+class _SalesOrderCard extends StatelessWidget {
+  final SalesOrder order;
+
+  const _SalesOrderCard({super.key, required this.order});
+
+  bool get _isOverdue {
+    final day = order.scheduledDay;
+    if (day == null) return false;
+    final now = DateTime.now();
+    return day.isBefore(DateTime(now.year, now.month, now.day));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: _isOverdue
+              ? Colors.orange.withValues(alpha: 0.6)
+              : AppTheme.primaryBlue.withValues(alpha: 0.25),
+          width: 1.5,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => SalesOrderSheet(order: order),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  order.isCollection
+                      ? Icons.archive_outlined
+                      : Icons.local_shipping_outlined,
+                  color: AppTheme.primaryBlue,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          order.orderNumber,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryBlack,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          order.typeLabel,
+                          style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.primaryGrey),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      order.partyName,
+                      style: const TextStyle(
+                          fontSize: 13, color: AppTheme.darkGrey),
+                    ),
+                    if (_isOverdue && order.scheduledDay != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          'Overdue \u00b7 was ${DateFormat('d MMM').format(order.scheduledDay!)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.orange[800],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right,
+                  color: AppTheme.primaryGrey),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
