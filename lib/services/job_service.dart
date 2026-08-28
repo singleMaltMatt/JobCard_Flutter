@@ -169,11 +169,16 @@ class JobService {
     }
   }
 
-  /// Complete job and optionally spawn next recurring occurrence
+  /// Complete job and optionally spawn next recurring occurrence.
+  ///
+  /// [emailRequested] records the technician's intent. It does NOT mean the
+  /// email went out — `email_sent` is written by the server-side job_email
+  /// hook only after the mailer confirms. Previously `email_sent` was set
+  /// here from the checkbox, so it was true even when nothing was sent.
   Future<void> completeJob({
     required String jobId,
     required String description,
-    required bool emailSent,
+    required bool emailRequested,
     Job? originalJob,
     DateTime? onSiteStartedAt,
   }) async {
@@ -181,7 +186,8 @@ class JobService {
       final body = <String, dynamic>{
         'status': 'completed',
         'description': description,
-        'email_sent': emailSent,
+        'email_requested': emailRequested,
+        'email_sent': false,
         'on_site_ended_at': DateTime.now().toUtc().toIso8601String(),
       };
       if (onSiteStartedAt != null) {

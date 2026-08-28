@@ -1,7 +1,7 @@
 name: jobcard_tracker
 description: Job Card Tracker Application
 publish_to: 'none'
-version: 1.2.0+2
+version: 1.3.0+3
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -19,7 +19,11 @@ dependencies:
   web: ^1.0.0
   package_info_plus: ^8.0.0
   url_launcher: ^6.3.0
-  file_picker: ^11.0.3
+  # Pinned to 10.x deliberately. 11.x fails the Android build
+  # (its gradle config doesn't apply kotlin-android, so FilePickerPlugin
+  # never compiles) and 12.x changes pickFiles' return type.
+  # 10.x uses FilePicker.platform.pickFiles(...) — see sales_order_form_screen.
+  file_picker: ^10.3.10
 
 dev_dependencies:
   flutter_test:

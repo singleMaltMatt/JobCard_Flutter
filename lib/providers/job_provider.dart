@@ -150,7 +150,7 @@ class JobProvider extends ChangeNotifier {
   Future<bool> completeJob({
     required String jobId,
     required String description,
-    required bool emailSent,
+    required bool emailRequested,
     Job? originalJob,
     DateTime? onSiteStartedAt,
   }) async {
@@ -158,7 +158,7 @@ class JobProvider extends ChangeNotifier {
       await _jobService.completeJob(
         jobId: jobId,
         description: description,
-        emailSent: emailSent,
+        emailRequested: emailRequested,
         originalJob: originalJob,
         onSiteStartedAt: onSiteStartedAt,
       );
@@ -318,10 +318,9 @@ class JobProvider extends ChangeNotifier {
       );
       if (!uploaded) break; // still offline
 
-      if (job.sendEmail && job.emailPayload != null) {
-        final sent = await PdfPipelineService.sendEmail(job.emailPayload!, pdfBytes);
-        if (!sent) break; // email server down — keep in queue, retry next time
-      }
+      // No email call here — attaching the PDF triggers the server-side
+      // job_email hook, which sends if email_requested is set and
+      // email_sent is still false. Sending here too would double up.
 
       await _pdfQueue.remove(job.id);
     }
@@ -422,9 +421,8 @@ class JobProvider extends ChangeNotifier {
       'clientAddress': job.clientAddress,
       'jobNumber': job.jobNumber,
       'jobType': job.jobTypeLabel,
-      'appointmentDetails': job.calendarDate != null
-          ? DateFormat('d MMM yyyy').format(DateTime.parse(job.calendarDate!))
-          : '',
+      // Completion date, date only — see note in complete_job_dialog.
+      'appointmentDetails': DateFormat('d MMM yyyy').format(departed),
       'arrivedTime': arrived != null ? timeFmt.format(arrived) : '',
       'departedTime': timeFmt.format(departed),
       'timeSpent': timeSpent,

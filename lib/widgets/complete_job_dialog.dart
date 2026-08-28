@@ -25,6 +25,7 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
   bool _getSignature = false;
   bool _sendEmail = false;
   bool _isSubmitting = false;
+  String _progressLabel = '';
   String? _capturedSignature;
   DateTime? _departedTime;
   DateTime? _manualArrivedTime;
@@ -294,56 +295,69 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
   }
 
   Future<void> _executeCompletion() async {
-    setState(() => _isSubmitting = true);
-
+    // Read providers BEFORE any await. These used to be read after the dialog
+    // was popped, which raced widget disposal and could silently blank the
+    // technician name on the job card.
     final jobProvider = context.read<JobProvider>();
-    final success = await jobProvider.completeJob(
-      jobId: widget.job.id,
-      description: _descriptionController.text.trim(),
-      emailSent: _sendEmail,
-      originalJob: widget.job,
-      onSiteStartedAt: _manualArrivedTime,
-    );
-
-    if (mounted) {
-      setState(() => _isSubmitting = false);
-
-      if (success) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(widget.job.isRecurring
-                ? 'Job completed! Next occurrence scheduled.'
-                : 'Job completed successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        _generateStoreAndMaybeEmail(context);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                'Failed: ${jobProvider.error ?? "Unknown error"}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  void _generateStoreAndMaybeEmail(BuildContext context) {
-    final jobProvider = context.read<JobProvider>();
-    _generatePdfStoreAndEmail(jobProvider).catchError((e) {
-      debugPrint('PDF/email pipeline error: $e');
-    });
-  }
-
-  Future<void> _generatePdfStoreAndEmail(JobProvider jobProvider) async {
-    final user = context.mounted ? context.read<AuthProvider>().user : null;
+    final user = context.read<AuthProvider>().user;
     final technicianName = (user?.name?.isNotEmpty == true)
         ? user!.name!
         : (user?.username ?? '');
 
+    setState(() {
+      _isSubmitting = true;
+      _progressLabel = 'Completing job...';
+    });
+
+    final success = await jobProvider.completeJob(
+      jobId: widget.job.id,
+      description: _descriptionController.text.trim(),
+      emailRequested: _sendEmail,
+      originalJob: widget.job,
+      onSiteStartedAt: _manualArrivedTime,
+    );
+
+    if (!mounted) return;
+
+    if (!success) {
+      setState(() {
+        _isSubmitting = false;
+        _progressLabel = '';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed: ${jobProvider.error ?? "Unknown error"}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // CRITICAL: awaited with the dialog still open. This pipeline used to run
+    // fire-and-forget AFTER Navigator.pop(), so the tech saw "completed!",
+    // pocketed the phone, and the suspended tab killed the in-flight request
+    // mid-chain. No PDF, no email, no trace — and the retry queue never fired
+    // because no call ever *returned* a failure.
+    await _generatePdfStoreAndEmail(jobProvider, technicianName);
+
+    if (!mounted) return;
+    setState(() {
+      _isSubmitting = false;
+      _progressLabel = '';
+    });
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(widget.job.isRecurring
+            ? 'Job completed! Next occurrence scheduled.'
+            : 'Job completed successfully!'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  Future<void> _generatePdfStoreAndEmail(
+      JobProvider jobProvider, String technicianName) async {
     final now = _departedTime ?? DateTime.now();
     final arrived = (widget.job.onSiteStartedAt ?? _manualArrivedTime)?.toLocal();
     final departed = now.toLocal();
@@ -372,10 +386,10 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       'clientAddress': widget.job.clientAddress,
       'jobNumber': widget.job.jobNumber,
       'jobType': widget.job.jobTypeLabel,
-      'appointmentDetails': widget.job.calendarDate != null
-          ? DateFormat('d MMM yyyy')
-              .format(DateTime.parse(widget.job.calendarDate!))
-          : '',
+      // Date the work was actually completed, date only. NOT the job's
+      // calendar_date — a job scheduled for the 27th but completed on the
+      // 1st was showing the 27th, which made the signed card wrong.
+      'appointmentDetails': DateFormat('d MMM yyyy').format(departed),
       'arrivedTime': arrived != null ? timeFmt.format(arrived) : '',
       'departedTime': timeFmt.format(departed),
       'timeSpent': timeSpent,
@@ -401,6 +415,7 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
         : null;
 
     // Step 1: generate the PDF
+    if (mounted) setState(() => _progressLabel = 'Generating job card...');
     final pdfBytes = await PdfPipelineService.generatePdf(pdfPayload);
     if (pdfBytes == null) {
       await jobProvider.queuePdfJob(
@@ -413,7 +428,9 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       return;
     }
 
-    // Step 2: upload PDF to PocketBase, attached to this job record
+    // Step 2: upload PDF to PocketBase, attached to this job record.
+    // Attaching it is what triggers the server-side email hook.
+    if (mounted) setState(() => _progressLabel = 'Uploading job card...');
     final uploaded = await jobProvider.uploadJobCardPdf(
       jobId: widget.job.id,
       pdfBytes: pdfBytes,
@@ -430,9 +447,10 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       return;
     }
 
-    // Step 2b: upload signature to PocketBase for future PDF regeneration.
-    // Best-effort — failure doesn't block the email.
+    // Step 3: upload signature to PocketBase for future PDF regeneration.
+    // Best-effort — failure doesn't block anything.
     if (signaturePngBytes != null) {
+      if (mounted) setState(() => _progressLabel = 'Saving signature...');
       await jobProvider.uploadSignature(
         jobId: widget.job.id,
         pngBytes: signaturePngBytes,
@@ -440,20 +458,9 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       );
     }
 
-    // Step 3: email (optional) — queue on failure so the client still gets it
-    if (_sendEmail && emailPayload != null) {
-      final sent =
-          await PdfPipelineService.sendEmail(emailPayload, pdfBytes);
-      if (!sent) {
-        await jobProvider.queuePdfJob(
-          jobId: widget.job.id,
-          fileName: fileName,
-          pdfPayload: pdfPayload,
-          sendEmail: true,
-          emailPayload: emailPayload,
-        );
-      }
-    }
+    // NOTE: no email call here. The send is triggered server-side by the
+    // job_email pb_hook once job_card_pdf is attached and email_requested
+    // is set, so it no longer depends on this device staying awake.
   }
 
   @override
@@ -661,7 +668,9 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
                                 )
                               : const Icon(Icons.check_circle),
                           label: Text(_isSubmitting
-                              ? 'Completing...'
+                              ? (_progressLabel.isEmpty
+                                  ? 'Completing...'
+                                  : _progressLabel)
                               : 'Complete Job'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,

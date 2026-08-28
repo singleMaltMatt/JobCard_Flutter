@@ -168,7 +168,11 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
   }
 
   Future<void> _pickPdf() async {
-    final result = await FilePicker.pickFiles(
+    // NOTE: file_picker is pinned to ^10.3.10 (11.x has a broken Android
+    // gradle config). 10.x uses the instance accessor; 11.x switched to a
+    // static call. Don't "fix" this to FilePicker.pickFiles without also
+    // moving the pubspec constraint.
+    final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
       withData: true,
