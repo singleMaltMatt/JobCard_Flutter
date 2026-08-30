@@ -359,46 +359,39 @@ class JobProvider extends ChangeNotifier {
     required Job job,
     required String technicianName,
   }) async {
-    List<int>? pdfBytes;
+    // Stored PDF present: send that exact document, untouched.
 
     // ── Try to reuse the existing PDF ────────────────────────────────────
+    // The stored PDF is the document the client actually signed, so reuse it
+    // untouched. We only need to know it exists — the hook sends whatever is
+    // on the record, so there's no need to download it here.
     if (job.jobCardPdfName?.isNotEmpty == true) {
-      final path = '/api/files/jobs/${job.id}/${job.jobCardPdfName}';
-      pdfBytes = await _jobService.downloadFileBytes(path);
+      return _jobService.requestEmailSend(job.id);
     }
 
     // ── Regenerate if no PDF was found ───────────────────────────────────
-    if (pdfBytes == null) {
-      String? signatureBase64;
-      if (job.signatureUrl?.isNotEmpty == true) {
-        final path = '/api/files/jobs/${job.id}/${job.signatureUrl}';
-        final bytes = await _jobService.downloadFileBytes(path);
-        if (bytes != null) {
-          signatureBase64 = 'data:image/png;base64,${base64Encode(bytes)}';
-        }
-      }
-
-      final pdfPayload = _buildPdfPayload(job, technicianName, signatureBase64);
-      pdfBytes = await PdfPipelineService.generatePdf(pdfPayload);
-
-      if (pdfBytes != null) {
-        final fileName = '${job.jobNumber.isNotEmpty ? job.jobNumber : job.id}.pdf';
-        await uploadJobCardPdf(jobId: job.id, pdfBytes: pdfBytes, fileName: fileName);
+    String? signatureBase64;
+    if (job.signatureUrl?.isNotEmpty == true) {
+      final path = '/api/files/jobs/${job.id}/${job.signatureUrl}';
+      final bytes = await _jobService.downloadFileBytes(path);
+      if (bytes != null) {
+        signatureBase64 = 'data:image/png;base64,${base64Encode(bytes)}';
       }
     }
 
+    final pdfPayload = _buildPdfPayload(job, technicianName, signatureBase64);
+    final pdfBytes = await PdfPipelineService.generatePdf(pdfPayload);
     if (pdfBytes == null) return false;
 
-    final emailPayload = {
-      'to': job.clientEmail,
-      'subject': 'Job Completed - ${job.jobTypeLabel} ${job.jobNumber}',
-      'clientName': job.clientName,
-      'clientAddress': job.clientAddress,
-      'jobDate': job.calendarDate ?? job.createdAt.toIso8601String(),
-      'description': job.description ?? '',
-    };
+    final fileName =
+        '${job.jobNumber.isNotEmpty ? job.jobNumber : job.id}.pdf';
+    final uploaded = await uploadJobCardPdf(
+        jobId: job.id, pdfBytes: pdfBytes, fileName: fileName);
+    if (!uploaded) return false;
 
-    return PdfPipelineService.sendEmail(emailPayload, pdfBytes);
+    // Hand off to the server-side hook: flipping email_requested/email_sent
+    // triggers job_email, which sends the PDF now on the record.
+    return _jobService.requestEmailSend(job.id);
   }
 
   Map<String, dynamic> _buildPdfPayload(

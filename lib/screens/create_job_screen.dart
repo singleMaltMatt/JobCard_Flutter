@@ -97,6 +97,7 @@ class _CreateJobScreenState extends State<CreateJobScreen> {
     }
 
     if (clientId.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select or create a client')),
       );

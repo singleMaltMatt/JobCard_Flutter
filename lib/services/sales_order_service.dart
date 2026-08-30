@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/sales_order.dart';
@@ -116,6 +117,49 @@ class SalesOrderService {
     } catch (e) {
       throw Exception('Failed to load sales orders: $e');
     }
+  }
+
+  /// Sales orders attached to a job via related_job. Used at job completion
+  /// to merge signed delivery notes into the job card, and to warn about any
+  /// that haven't been signed yet.
+  Future<List<SalesOrder>> getOrdersForJob(String jobId) async {
+    if (jobId.isEmpty) return [];
+    try {
+      final response = await _client.get(
+        ApiConfig.salesOrdersEndpoint,
+        queryParams: {
+          'filter': '(related_job = "$jobId")',
+          'sort': 'order_number',
+          'expand': 'client,supplier,assigned_to',
+          'perPage': '100',
+        },
+      );
+
+      if (response.statusCode != 200) return [];
+
+      final data = jsonDecode(response.body);
+      final items = data['items'] as List<dynamic>;
+      return items
+          .map((item) => SalesOrder.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('getOrdersForJob error: $e');
+      return [];
+    }
+  }
+
+  /// Download the merged delivery/collection note produced at signing.
+  Future<List<int>?> fetchGeneratedPdf(SalesOrder order) async {
+    final name = order.generatedPdfName;
+    if (name == null) return null;
+    try {
+      final response = await http.get(Uri.parse(
+          ApiConfig.fileUrl('sales_orders', order.id, name)));
+      if (response.statusCode == 200) return response.bodyBytes;
+    } catch (_) {
+      // fall through
+    }
+    return null;
   }
 
   /// Download the SAGE PDF attached to an order, as raw bytes.

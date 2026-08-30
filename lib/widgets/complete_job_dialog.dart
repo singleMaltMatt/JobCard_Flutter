@@ -8,6 +8,9 @@ import '../models/job.dart';
 import '../providers/auth_provider.dart';
 import '../providers/job_provider.dart';
 import '../services/pdf_pipeline_service.dart';
+import '../services/pocketbase_client.dart';
+import '../services/sales_order_service.dart';
+import '../services/sales_pdf_service.dart';
 import 'signature_pad.dart';
 
 class CompleteJobDialog extends StatefulWidget {
@@ -113,7 +116,50 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
     final confirmed = await _showConfirmationSummary();
     if (!mounted || confirmed != true) return;
 
+    // Warn (but don't block) if a delivery attached to this job is still
+    // unsigned — this is the last moment the tech can go and sign it, and
+    // an unsigned note never gets merged into the job card.
+    final proceed = await _checkUnsignedDeliveries();
+    if (!mounted || !proceed) return;
+
     await _executeCompletion();
+  }
+
+  /// Returns true if completion should continue.
+  Future<bool> _checkUnsignedDeliveries() async {
+    final service = SalesOrderService(context.read<PocketBaseClient>());
+    final orders = await service.getOrdersForJob(widget.job.id);
+    final unsigned = orders.where((o) => !o.isCompleted).toList();
+    if (unsigned.isEmpty || !mounted) return true;
+
+    final labels = unsigned
+        .map((o) => '${o.orderNumber} (${o.typeLabel.toLowerCase()})')
+        .join(', ');
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Unsigned delivery'),
+        content: Text(
+          '$labels ${unsigned.length == 1 ? 'is' : 'are'} attached to this job '
+          'but not signed yet.\n\n'
+          'If you complete now, ${unsigned.length == 1 ? 'it' : 'they'} won\'t be '
+          'included in the job card sent to the client.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Go Back and Sign'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Complete Anyway',
+                style: TextStyle(color: Colors.orange)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   Future<DateTime?> _showArrivedTimeDialog() async {
@@ -300,6 +346,7 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
     // technician name on the job card.
     final jobProvider = context.read<JobProvider>();
     final user = context.read<AuthProvider>().user;
+    final pbClient = context.read<PocketBaseClient>();
     final technicianName = (user?.name?.isNotEmpty == true)
         ? user!.name!
         : (user?.username ?? '');
@@ -338,7 +385,7 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
     // pocketed the phone, and the suspended tab killed the in-flight request
     // mid-chain. No PDF, no email, no trace — and the retry queue never fired
     // because no call ever *returned* a failure.
-    await _generatePdfStoreAndEmail(jobProvider, technicianName);
+    await _generatePdfStoreAndEmail(jobProvider, technicianName, pbClient);
 
     if (!mounted) return;
     setState(() {
@@ -357,7 +404,7 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
   }
 
   Future<void> _generatePdfStoreAndEmail(
-      JobProvider jobProvider, String technicianName) async {
+      JobProvider jobProvider, String technicianName, PocketBaseClient pbClient) async {
     final now = _departedTime ?? DateTime.now();
     final arrived = (widget.job.onSiteStartedAt ?? _manualArrivedTime)?.toLocal();
     final departed = now.toLocal();
@@ -428,12 +475,37 @@ class _CompleteJobDialogState extends State<CompleteJobDialog> {
       return;
     }
 
+    // Step 1b: append any signed delivery/collection notes attached to this
+    // job, so the client receives a single document. Falls back to the plain
+    // job card if anything here fails — a merge problem must never cost the
+    // client their job card.
+    var finalBytes = pdfBytes;
+    final salesService = SalesOrderService(pbClient);
+    final attachedOrders = await salesService.getOrdersForJob(widget.job.id);
+    final signedOrders =
+        attachedOrders.where((o) => o.isCompleted && o.generatedPdfName != null);
+
+    if (signedOrders.isNotEmpty) {
+      if (mounted) {
+        setState(() => _progressLabel = 'Attaching delivery notes...');
+      }
+      final parts = <List<int>>[pdfBytes];
+      for (final order in signedOrders) {
+        final noteBytes = await salesService.fetchGeneratedPdf(order);
+        if (noteBytes != null) parts.add(noteBytes);
+      }
+      if (parts.length > 1) {
+        final merged = await SalesPdfService.mergePdfs(parts);
+        if (merged != null) finalBytes = merged;
+      }
+    }
+
     // Step 2: upload PDF to PocketBase, attached to this job record.
     // Attaching it is what triggers the server-side email hook.
     if (mounted) setState(() => _progressLabel = 'Uploading job card...');
     final uploaded = await jobProvider.uploadJobCardPdf(
       jobId: widget.job.id,
-      pdfBytes: pdfBytes,
+      pdfBytes: finalBytes,
       fileName: fileName,
     );
     if (!uploaded) {

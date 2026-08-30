@@ -90,22 +90,6 @@ class JobService {
     }
   }
 
-  /// Generate next job number (GS_0001 format)
-  Future<String> _generateJobNumber() async {
-    try {
-      final response = await _client.get(
-        ApiConfig.jobsEndpoint,
-        queryParams: {'perPage': '1'},
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final total = (data['totalItems'] as int? ?? 0) + 1;
-        return 'GS_${total.toString().padLeft(4, '0')}';
-      }
-    } catch (_) {}
-    return 'GS_${DateTime.now().millisecondsSinceEpoch}';
-  }
-
   /// Create a new job
   Future<Job> createJob({
     required String clientId,
@@ -297,5 +281,20 @@ class JobService {
         next = date.add(const Duration(days: 7));
     }
     return '${next.year}-${next.month.toString().padLeft(2, '0')}-${next.day.toString().padLeft(2, '0')}';
+  }
+
+  /// Flag a job for (re)sending. The server-side job_email hook watches for
+  /// email_requested && !email_sent on a completed job with a PDF attached,
+  /// so flipping these is all that's needed to trigger a send.
+  Future<bool> requestEmailSend(String jobId) async {
+    try {
+      final response = await _client.patch(
+        ApiConfig.jobEndpoint(jobId),
+        body: {'email_requested': true, 'email_sent': false},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
   }
 }

@@ -34,6 +34,29 @@ class SalesPdfService {
     return null;
   }
 
+  /// Merge several PDFs into one, in the order given. Used to append signed
+  /// delivery notes to a job card so the client receives one document.
+  /// Returns null on failure — callers should fall back to the unmerged PDF
+  /// rather than losing the job card entirely.
+  static Future<List<int>?> mergePdfs(List<List<int>> pdfs) async {
+    if (pdfs.isEmpty) return null;
+    if (pdfs.length == 1) return pdfs.first;
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/pdf/merge-pdfs'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'pdfs': pdfs.map((b) => base64Encode(b)).toList(),
+        }),
+      );
+      if (response.statusCode == 200) return response.bodyBytes;
+      debugPrint('PDF merge failed (${response.statusCode}): ${response.body}');
+    } catch (e) {
+      debugPrint('PDF merge error: $e');
+    }
+    return null;
+  }
+
   /// Send the signed delivery/collection note. Uses the dedicated
   /// /send-sales-email endpoint — the job-card endpoint's template is
   /// worded for completed jobs and would be wrong here.
