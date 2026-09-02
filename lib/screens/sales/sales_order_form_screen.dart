@@ -198,6 +198,23 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
     }
   }
 
+  Future<void> _addClient() async {
+    final created = await showDialog<Client>(
+      context: context,
+      builder: (_) => _AddClientDialog(service: _clientService),
+    );
+    if (created != null) {
+      setState(() {
+        _clients = [..._clients, created]
+          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        _partyId = created.id;
+      });
+      // A brand-new client can't have jobs yet, but keep the attach list
+      // in step with the new selection.
+      await _refreshAttachableJobs();
+    }
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_partyId == null) {
@@ -369,15 +386,18 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
                           _refreshAttachableJobs();
                         },
                 ),
-                if (isCollection)
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: _saving ? null : _addSupplier,
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Add new supplier'),
-                    ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _saving
+                        ? null
+                        : (isCollection ? _addSupplier : _addClient),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: Text(isCollection
+                        ? 'Add new supplier'
+                        : 'Add new client'),
                   ),
+                ),
                 const SizedBox(height: 16),
 
                 // Technician
@@ -641,6 +661,119 @@ class _AddSupplierDialogState extends State<_AddSupplierDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Add Supplier'),
+      content: SizedBox(
+        width: 400,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _nameController,
+                enabled: !_saving,
+                decoration: const InputDecoration(labelText: 'Name'),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _emailController,
+                enabled: !_saving,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  hintText: 'Separate multiples with ;',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _phoneController,
+                enabled: !_saving,
+                decoration: const InputDecoration(labelText: 'Phone'),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _addressController,
+                enabled: !_saving,
+                decoration: const InputDecoration(labelText: 'Address'),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  height: 16,
+                  width: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Add'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Inline client creation, mirroring _AddSupplierDialog. Kelly occasionally
+/// gets a delivery for a client who has no job on the system yet.
+class _AddClientDialog extends StatefulWidget {
+  final ClientService service;
+
+  const _AddClientDialog({required this.service});
+
+  @override
+  State<_AddClientDialog> createState() => _AddClientDialogState();
+}
+
+class _AddClientDialogState extends State<_AddClientDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _addressController = TextEditingController();
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _addressController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      final client = await widget.service.createClient(
+        name: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+        phone: _phoneController.text.trim(),
+        address: _addressController.text.trim(),
+      );
+      if (mounted) Navigator.of(context).pop(client);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to add client: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add Client'),
       content: SizedBox(
         width: 400,
         child: Form(
