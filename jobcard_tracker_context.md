@@ -1,6 +1,6 @@
 # JobCard Tracker — Project Context & Reference
 
-_Last updated: 28 Aug 2026 (sales feature complete and live; job emails moved server-side)_
+_Last updated: 3 Sep 2026 (SAGE signature stamping; inline client creation)_
 
 ## What this is
 Internal MSP job-card tracking system for GlobalSense (globalsense.co.za, "Make IT happen"). Technicians create/complete jobs on-site via a Flutter Android app; completed jobs generate a branded PDF job card, optionally emailed to the client, with analytics in Metabase. A **sales portal** (`/sales/`) lets the sales user schedule deliveries/collections and assign them to technicians. Built and tested on a CachyOS dev machine, migrated to production on an Arch (EndeavourOS) VM at the office.
@@ -38,7 +38,7 @@ nginx config: /etc/nginx/sites-enabled/jobcard_tracker.conf (include line added 
 | Endpoint | Purpose |
 |---|---|
 | `/generate-pdf` | Job card. Production-critical — don't modify casually. |
-| `/generate-sales-pdf` | Delivery/collection note; appends the SAGE PDF via pdf-lib |
+| `/generate-sales-pdf` | Delivery/collection note; appends the SAGE PDF via pdf-lib, and **stamps the signature onto the SAGE page itself** for deliveries |
 | `/merge-pdfs` | Merges an array of base64 PDFs in order. Skips non-PDF entries rather than failing the batch. |
 
 **Email service (3002)**
@@ -61,8 +61,9 @@ nginx config: /etc/nginx/sites-enabled/jobcard_tracker.conf (include line added 
 | `job_number.pb.js` | GS_XXXX on create |
 | `sales_order_number.pb.js` | DN_XXXX / CN_XXXX on create, two sequences |
 | `job_email.pb.js` | **Sends the job card email server-side** |
+| `job_guard.pb.js` | Protects `on_site_started_at` from being overwritten; logs every status transition |
 
-All three log a line on load — `journalctl -u pocketbase` after a restart should show three "hook loaded" lines. A missing one means that hook isn't registered.
+All four log a line on load — `journalctl -u pocketbase` after a restart should show four "hook loaded" lines. A missing one means that hook isn't registered.
 
 **job_email.pb.js** — `onRecordAfterUpdateSuccess` on `jobs`. Fires when status=completed, `email_requested`, `!email_sent`, and a PDF is attached; POSTs to `/send-job-email` with a local file URL; sets `email_sent=true` only on HTTP 200 (which re-triggers the hook, stopped by the `email_sent` guard). Every hook logs a line — `journalctl -u pocketbase | grep job_email` is the diagnostic. Copy in the repo at `server/job_email.pb.js`.
 
@@ -92,6 +93,19 @@ Replaces the sales user printing delivery notes / collection invoices by hand.
   - At completion the app warns (does not block) if an attached order is still unsigned — an unsigned note never gets merged.
 - **Status is derived, not user-set**: completed stays completed (tech owns that transition); otherwise assigned tech → `assigned`, no tech → `pending`.
 - **PDF**: `/pdf/generate-sales-pdf` — Puppeteer renders a jobcard-styled cover (title "Delivery – DN_0001" / "Collection – CN_0001", party details, reference, description, "Received in good order" + signature block), then **pdf-lib appends the uploaded SAGE PDF as pages 2+**. The existing `/generate-pdf` jobcard endpoint is untouched. The app orchestrates the merge (downloads attached_pdf, posts base64, uploads result) so the PDF service needs no PocketBase credentials.
+- **SAGE signature stamping** (`stampSageSignature` in the PDF service): the same signature/name/date is drawn onto the **last page of the attached SAGE note**, so the document the client physically saw carries their signature too. Kelly asked for this — not all parties will accept a signature that only appears on our cover page.
+  - Coordinates measured with pdfplumber from a real A4 (595×842) SAGE note. The block is **bottom-anchored**, so it holds regardless of line-item count. pdfplumber is top-down, pdf-lib bottom-up (`y = 842 - top`):
+
+    | Element | Underline (top-down) | pdf-lib y |
+    |---|---|---|
+    | Name | x 349.9–569.5, top 762.2 | 79.8 |
+    | Signed | x 62.3–279.0, top 785.9 | 56.2 |
+    | Date | x 349.9–569.5, top 785.9 | 56.2 |
+
+    Config in `SAGE_SIGNATURE_BLOCK`: signature `x 66, y 58, max 200×38`; name `x 354, y 83`; date `x 354, y 59.5`; size 9.
+  - **Deliveries only.** A collection's attachment is the *supplier's* own invoice with a different layout — stamping it would draw over their text.
+  - Guards: skips anything not A4 portrait (±5pt), and a stamping failure logs and merges unstamped rather than losing the document.
+  - ⚠️ **pdf-lib gotcha**: `embedPng()` / `embedFont()` only materialise on `save()`. The stamped doc MUST be round-tripped (`attachedDoc = await PDFDocument.load(await attachedDoc.save())`) **before** `copyPages`, or the draw operators reference resources that were never written and the stamp silently renders as nothing — no error, no log.
 - **Portal**: second entrypoint in the same repo — `lib/main_sales.dart`, built with `flutter build web --release --base-href /sales/ -t lib/main_sales.dart`. Login gated on `is_sales || is_head_office || superuser`, with a fallback to the `_superusers` auth endpoint. Uses **separate SharedPreferences keys** (`sales_pb_*`) because `/app/` and `/sales/` share a web origin and would otherwise clobber each other's sessions.
 - Portal files: `lib/main_sales.dart`, `lib/providers/sales_auth_provider.dart`, `lib/providers/sales_provider.dart`, `lib/services/sales_order_service.dart`, `lib/services/supplier_service.dart`, `lib/models/{supplier,sales_order,week_job}.dart`, `lib/screens/sales/{sales_login_screen,sales_home_screen,sales_order_form_screen}.dart`.
 
@@ -139,10 +153,15 @@ Replaces the sales user printing delivery notes / collection invoices by hand.
 - **NAT hairpinning is not supported**, so `curl https://jobtracking.globalsense.co.za/...` **from the server** returns `000` (no connection). Test from a client machine, or hit `http://127.0.0.1:8090` directly to bypass nginx.
 - **pb_hooks syntax errors fail silently at the app level** — check `journalctl -u pocketbase` for `failed to execute <file>: SyntaxError` right after restart. A mismatched brace before `catch` produces "Unexpected token c".
 - Shell `Argument list too long` when passing base64 PDFs to `jq --arg` — use `--rawfile` from a temp file instead. Only a test-harness issue; the app posts JSON from memory.
+- **Check service uptime before debugging a "broken" change.** A stamping fix looked like it had failed; the test PDF had actually been generated ~an hour *before* the service was restarted, so it ran the old code.
+- **To calibrate coordinates on a third-party PDF, measure it** — `pdfplumber` gives exact x/top for every word and line. Guessing costs more rounds than installing the tool.
 
-## Server scripts (in ~ on server; regenerate from chat if lost)
-- **regenerate_jobcard.sh <GS_XXXX>** — pulls job from PB, generates PDF, uploads to job_card_pdf.
-- **resend_email.sh <GS_XXXX> [override_email]** — downloads STORED PDF, emails it, sets email_sent=true.
+## Recovery (no scripts needed)
+The old `regenerate_jobcard.sh` / `resend_email.sh` / `send_jobcard.sh` are **not on the server** (checked 3 Sep 2026 — `~/*.sh` is empty). They're also largely obsolete now that the job_email hook owns sending:
+
+- **Resend an email**: set `email_sent = false` on the job in the admin UI (needs `email_requested = true`, status completed, PDF attached). The hook fires on save and sends the stored PDF untouched.
+- **Rebuild a bad PDF** (wrong times etc.): delete `job_card_pdf` on the record, then have the tech hit Resend in the app. `resendJobEmail` regenerates from the stored job data + stored signature, uploads, and the hook emails it.
+- **Diagnose**: `journalctl -u pocketbase | grep -E 'job_email|job_guard'` shows every send, every skip reason, and every status transition.
 
 ## Health check quick reference
 ```
@@ -179,15 +198,14 @@ location /sales/ { alias /var/www/jobcard-sales/; try_files $uri $uri/ /sales/in
 Verify with `sudo nginx -t && sudo systemctl reload nginx` then `curl -k -I https://127.0.0.1/sales/`.
 
 ## Outstanding TODOs
-1. **`updateJobStatus` timestamp guard** — only set `on_site_started_at` if null, and don't let a completed job silently move backwards. Has now caused both corrupted durations (GS Richards Bay) and a blocked email (GS_0238).
-2. Fix corrupted GS Richards Bay job record timestamps manually if not done.
-3. **Release keystore** — see the debug-signing note above.
-4. Harden the job_email double-fire guard (set `email_sent` before sending).
-5. Check `send_jobcard.sh` doesn't now double-trigger the hook — re-uploading a PDF to a job with `email_requested=1, email_sent=0` will fire it.
-6. Enable PocketBase S3 backups once PetaSAN is stable (need endpoint/bucket/keys). Manual backups until then.
-7. Broken nginx `alias` for `/static/` — points at `/home/globaladmin/static/`, which nginx (user `http`) can't traverse; every request is `13: Permission denied`. Harmless (only bots hit it) but dead.
-8. Outlook desktop email rendering (table-based HTML) — deferred.
-9. MFA/OTP for app login — deferred (PB MFA is email-OTP, needs PB SMTP config).
+1. **Release keystore** — deferred to the next major feature update; building on CachyOS only in the meantime.
+2. **job_email double-fire** — the guard is a read-then-write with no atomicity. **Parked deliberately**: too little evidence, and it seems to happen when a new tech first uses the app. Waiting for a recurrence to learn what they actually did.
+3. **Unexplained `pending` on GS_0238** — a completed job came back as `pending` (28 Aug). No app code path writes `pending` to an existing job. nginx shows an Android (`Dart/3.13`) PATCH 34 min after completion, but nginx doesn't log bodies and PocketBase's request log lived in the since-rebuilt `auxiliary.db`, so the evidence is gone. **Parked with instrumentation** — `job_guard.pb.js` now logs every status transition and flags backwards-from-completed.
+4. Enable PocketBase S3 backups once PetaSAN is stable (need endpoint/bucket/keys). Manual backups until then.
+5. Broken nginx `alias` for `/static/` — points at `/home/globaladmin/static/`, which nginx (user `http`) can't traverse; every request is `13: Permission denied`. Harmless (only bots hit it) but dead.
+6. Outlook desktop email rendering (table-based HTML) — deferred.
+7. MFA/OTP for app login — deferred (PB MFA is email-OTP, needs PB SMTP config).
+8. SMTP password is plaintext in `~/email-service/server.js` — rotate and move to an env var.
 
 ## Resolved (previously open)
 - ✅ Signature storage wired to jobs.signature.
@@ -203,3 +221,7 @@ Verify with `sudo nginx -t && sudo systemctl reload nginx` then `curl -k -I http
 - ✅ `flutter analyze` clean; `test/widget_test.dart` replaced with real model tests.
 - ✅ `auxiliary.db` corruption cleared 30 Aug 2026 (moved aside, PocketBase recreated it; integrity_check ok). Old file kept as `auxiliary.db.corrupt-2026-08-30` — safe to delete once you're happy.
 - ✅ SSH from home over the VPN (MikroTik rule added 30 Aug 2026).
+- ✅ Inline **client** creation in the sales portal (was suppliers-only; Kelly asked for it 2 Sep).
+- ✅ Signature stamped onto the SAGE delivery note itself (3 Sep).
+- ✅ `on_site_started_at` protected (3 Sep): client-side guard, `job_guard.pb.js` server-side, and the **offline replay path** now drops queued status updates overtaken by a completion — the best explanation found for the GS Richards Bay duration corruption.
+- ✅ GS Richards Bay timestamps corrected manually.

@@ -105,13 +105,29 @@ class JobProvider extends ChangeNotifier {
   /// Update job status.
   /// On web, failed/offline requests are queued in localStorage and replayed
   /// automatically when connectivity is restored. Android path is unchanged.
+  ///
+  /// The current job is looked up and passed to the service so it can guard
+  /// against a completed job moving backwards, and against overwriting an
+  /// existing on_site_started_at.
   Future<bool> updateJobStatus(String jobId, String status) async {
+    final current = _findJobById(jobId);
+
+    // Block the backwards move before touching the queue — queueing an
+    // update that will be rejected on replay just hides the error.
+    if (current != null &&
+        current.status == 'completed' &&
+        status != 'completed') {
+      _error = 'This job is already completed and cannot be changed back.';
+      notifyListeners();
+      return false;
+    }
+
     if (kIsWeb && !webIsOnline) {
       await _queueStatusUpdate(jobId, status);
       return true;
     }
     try {
-      await _jobService.updateJobStatus(jobId, status);
+      await _jobService.updateJobStatus(jobId, status, currentJob: current);
       await loadAll();
       return true;
     } catch (e) {
@@ -123,6 +139,16 @@ class JobProvider extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  /// Look up a job across all loaded lists.
+  Job? _findJobById(String jobId) {
+    for (final list in [_jobs, _activeJobs, _completedJobs]) {
+      for (final job in list) {
+        if (job.id == jobId) return job;
+      }
+    }
+    return null;
   }
 
   Future<void> _queueStatusUpdate(String jobId, String status) async {
@@ -245,12 +271,28 @@ class JobProvider extends ChangeNotifier {
     notifyListeners();
 
     for (final action in pending) {
+      final current = _findJobById(action.jobId);
+
+      // Drop actions that time has overtaken. A queued "on route" replayed
+      // after the job was completed would move it backwards AND stamp a new
+      // on_site_started_at, corrupting the duration. The action is obsolete,
+      // not failed, so remove it rather than blocking the queue.
+      if (current != null &&
+          current.status == 'completed' &&
+          action.status != 'completed') {
+        debugPrint('flushOfflineQueue: dropping stale ${action.status} for '
+            '${current.jobNumber} (already completed)');
+        await _offlineQueue.remove(action.id);
+        continue;
+      }
+
       try {
         await _jobService.updateJobStatus(
           action.jobId,
           action.status,
           onSiteStartedAt:
               action.status == 'on_site' ? action.capturedAt : null,
+          currentJob: current,
         );
         await _offlineQueue.remove(action.id);
       } catch (_) {

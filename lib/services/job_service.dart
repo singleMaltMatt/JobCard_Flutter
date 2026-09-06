@@ -133,16 +133,40 @@ class JobService {
   }
 
   /// Update job status.
+  ///
   /// [onSiteStartedAt] lets the offline queue replay an accurately-timed
   /// on_site timestamp instead of using DateTime.now() at flush time.
+  ///
+  /// [currentJob], when supplied, enables two guards that exist because a
+  /// tech re-selecting a status on a finished job has twice caused real
+  /// damage: once corrupting a duration (GS Richards Bay) and once reverting
+  /// GS_0238 to `pending`, which dropped it off the tech's Completed list and
+  /// blocked its email at the hook's first guard.
+  ///   1. A completed job cannot move backwards.
+  ///   2. `on_site_started_at` is never overwritten once set.
   Future<void> updateJobStatus(String jobId, String status,
-      {DateTime? onSiteStartedAt}) async {
+      {DateTime? onSiteStartedAt, Job? currentJob}) async {
     try {
-      final body = <String, dynamic>{'status': status};
-      if (status == 'on_site') {
-        body['on_site_started_at'] =
-            (onSiteStartedAt ?? DateTime.now()).toUtc().toIso8601String();
+      if (currentJob != null &&
+          currentJob.status == 'completed' &&
+          status != 'completed') {
+        throw Exception(
+            'This job is already completed and cannot be moved back to '
+            '"${status.replaceAll('_', ' ')}".');
       }
+
+      final body = <String, dynamic>{'status': status};
+
+      if (status == 'on_site') {
+        // Only stamp the arrival time the first time. Re-selecting "on site"
+        // on a job that already has one would silently reset the duration.
+        final alreadyStarted = currentJob?.onSiteStartedAt != null;
+        if (!alreadyStarted) {
+          body['on_site_started_at'] =
+              (onSiteStartedAt ?? DateTime.now()).toUtc().toIso8601String();
+        }
+      }
+
       final response = await _client.patch(ApiConfig.jobEndpoint(jobId), body: body);
 
       if (response.statusCode != 200) {
